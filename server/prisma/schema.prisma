@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id              String       @id @default(uuid())
+  name            String
+  address         String
+  isOpen          Boolean      @default(true)
+  acceptingOrders Boolean      @default(true)
+  items           Item[]
+  orders          Order[]
+  adminStores     AdminStore[]
+  createdAt       DateTime     @default(now())
+}
+
+model Category {
+  id    String @id @default(uuid())
+  name  String @unique
+  sort  Int    @default(0)
+  items Item[]
+}
+
+model Item {
+  id           String      @id @default(uuid())
+  storeId      String
+  categoryId   String
+  name         String
+  description  String?
+  price        Decimal     @db.Decimal(10, 2)
+  gstRate      Decimal     @default(5.00) @db.Decimal(5, 2)
+  hsnCode      String?
+  stock        Int         @default(0)
+  imageUrl     String?
+  isBestseller Boolean     @default(false)
+  isAvailable  Boolean     @default(true)
+  orderItems   OrderItem[]
+  store        Store       @relation(fields: [storeId], references: [id])
+  category     Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([storeId, categoryId])
+}
+
+model Order {
+  id                String        @id @default(uuid())
+  orderNo           String        @unique
+  storeId           String
+  customerPhone     String
+  customerName      String?
+  customerMessage   String?       @db.Text
+  status            OrderStatus   @default(CREATED)
+  paymentStatus     PaymentStatus @default(PENDING)
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?
+  idempotencyKey    String?       @unique
+  subtotal          Decimal       @db.Decimal(10, 2)
+  cgstAmount        Decimal       @db.Decimal(10, 2)
+  sgstAmount        Decimal       @db.Decimal(10, 2)
+  total             Decimal       @db.Decimal(10, 2)
+  items             OrderItem[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  store             Store         @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, status, createdAt])
+  @@index([paymentStatus, createdAt])
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  itemId      String
+  itemName    String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2) // Inclusive price per unit (menu price at order time)
+  totalPrice  Decimal @db.Decimal(10, 2) // Inclusive total = unitPrice × quantity
+  basePrice   Decimal @db.Decimal(10, 2) // Base price per unit (excl. tax, for records)
+  baseTotal   Decimal @db.Decimal(10, 2) // Base total = basePrice × quantity
+  gstRate     Decimal @db.Decimal(5, 2) // GST rate % at order time
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item        Item    @relation(fields: [itemId], references: [id])
+}
+
+model AdminUser {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  role         AdminRole    @default(MANAGER)
+  stores       AdminStore[]
+  createdAt    DateTime     @default(now())
+}
+
+model AdminStore {
+  id      String    @id @default(uuid())
+  adminId String
+  storeId String
+  admin   AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  store   Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([adminId, storeId])
+}
+
+enum OrderStatus {
+  CREATED
+  PROCESSING
+  DELIVERED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  MANAGER
+}
