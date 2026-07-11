@@ -19,7 +19,8 @@ export default defineConfig({
             options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
           },
           {
-            urlPattern: /^\/api\/(menu|stores)\/.*/i,
+            // Match both relative /api/... and absolute https://rollsco-server.vercel.app/api/...
+            urlPattern: /\/api\/(menu|stores)/i,
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'api-menu-cache', expiration: { maxEntries: 20, maxAgeSeconds: 60 * 5 } }
           }
@@ -31,7 +32,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://rollsco-server.vercel.app',
+        target: 'http://localhost:3000',
         changeOrigin: true
       }
     }
