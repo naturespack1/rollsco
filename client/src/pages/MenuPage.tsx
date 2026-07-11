@@ -63,7 +63,7 @@ export default function MenuPage() {
               </div>
               <div className="grid gap-3">
                 {activeItems.map((item) => (
-                  <MenuItemCard key={`${item.type}-${item.id}`} item={item} />
+                  <MenuItemCard key={item.id} item={item} />
                 ))}
               </div>
             </div>

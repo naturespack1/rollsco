@@ -23,7 +23,7 @@ export async function createRazorpayOrder(amountInPaise: number, receipt: string
     currency: 'INR',
     receipt,
     notes,
-    payment_capture: 1,
+    payment_capture: true,
   });
 }
 

@@ -34,7 +34,7 @@ export default async function orderRoutes(app: FastifyInstance) {
         body.customerPhone,
         body.customerName,
         body.customerMessage,
-        body.items
+        body.items as { id: string; quantity: number }[]
       );
 
       return reply.send({

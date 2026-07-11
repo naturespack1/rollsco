@@ -27,12 +27,12 @@ interface Category {
 interface MenuItemData {
   id: string;
   name: string;
-  description: string | null;
+  description: string | null | undefined;
   price: number;
   stock: number;
   gstRate: number;
-  hsnCode: string | null;
-  imageUrl: string | null;
+  hsnCode: string | null | undefined;
+  imageUrl: string | null | undefined;
   isBestseller: boolean;
   isAvailable: boolean;
   storeId: string;

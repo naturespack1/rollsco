@@ -108,7 +108,7 @@ export default function StoreSelector() {
                   Download Bill
                 </button>
                 <button
-                  onClick={handleViewReceipt}
+                  onClick={() => lastOrder && handleViewReceipt(lastOrder.id)}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white border border-green-200 text-green-700 text-xs font-semibold hover:bg-green-50 transition"
                 >
                   <Receipt className="w-3.5 h-3.5" />

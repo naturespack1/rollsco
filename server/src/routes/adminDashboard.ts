@@ -202,7 +202,19 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     await enforceStoreAccess(request, reply, body.storeId);
 
     const item = await prisma.item.create({
-      data: { ...body },
+      data: {
+        storeId: body.storeId,
+        categoryId: body.categoryId,
+        name: body.name,
+        description: body.description ?? null,
+        price: body.price,
+        stock: body.stock ?? 0,
+        gstRate: body.gstRate ?? 5,
+        hsnCode: body.hsnCode ?? null,
+        imageUrl: body.imageUrl ?? null,
+        isBestseller: body.isBestseller ?? false,
+        isAvailable: body.isAvailable ?? true,
+      },
     });
     return { success: true, data: item };
   });
