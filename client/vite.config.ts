@@ -31,7 +31,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://rollsco-server-fb6ahayts-rollsco.vercel.app',
+        target: 'https://rollsco-server.vercel.app',
         changeOrigin: true
       }
     }
