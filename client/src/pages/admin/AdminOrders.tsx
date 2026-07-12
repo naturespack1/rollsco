@@ -323,6 +323,14 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
                       <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded border', statusColors[order.status])}>
                         {order.status}
                       </span>
+                      <span className={cn(
+                        'text-[10px] font-semibold px-1.5 py-0.5 rounded border',
+                        order.paymentStatus === 'PAID'
+                          ? 'bg-green-900/30 text-green-400 border-green-800'
+                          : 'bg-gray-900 text-gray-400 border-gray-700'
+                      )}>
+                        {order.paymentMethod === 'INSTORE' ? 'INSTORE' : 'ONLINE'} · {order.paymentStatus}
+                      </span>
                       {hasPendingUpdate && (
                         <span className="text-[10px] text-brand-400 bg-brand-900/30 px-1.5 py-0.5 rounded-full">
                           unsynced

@@ -148,6 +148,7 @@ ${isChef ? `
 <div class="mt tiny">${new Date(order.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</div>
 ${order.customerPhone ? `<div class="tiny">Ph: ${order.customerPhone}</div>` : ''}
 ${order.customerName ? `<div class="tiny">Name: ${escapeHtml(order.customerName)}</div>` : ''}
+${!isChef ? `<div class="tiny">Payment: ${order.paymentMethod === 'INSTORE' ? 'Instore (Paid)' : 'Online'}</div>` : ''}
 
 <div class="border-dashed"></div>
 

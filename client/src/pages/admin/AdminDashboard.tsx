@@ -16,18 +16,22 @@ import {
   Menu,
   X,
   RefreshCw,
+  CirclePlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AdminOrders from './AdminOrders';
 import AdminStock from './AdminStock';
 import AdminReports from './AdminReports';
 import AdminMenu from './AdminMenu';
+import AdminCreateOrder from './AdminCreateOrder';
+import StoreStatusControls from '@/components/StoreStatusControls';
 
 const AdminStaff = lazy(() => import('./AdminStaff'));
 
-type Tab = 'orders' | 'stock' | 'menu' | 'reports' | 'staff';
+type Tab = 'instoreOrder' | 'orders' | 'stock' | 'menu' | 'reports' | 'staff';
 
 const baseTabs: { id: Tab; label: string; icon: any }[] = [
+  { id: 'instoreOrder', label: 'New Order', icon: CirclePlus },
   { id: 'orders', label: 'Orders', icon: ShoppingBag },
   { id: 'stock', label: 'Stock', icon: Package },
   { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
@@ -69,6 +73,14 @@ export default function AdminDashboard() {
       useAdminCacheStore.getState().invalidateAll();
       window.location.reload();
     }
+  };
+
+  const selectedStore = stores.find((store) => store.id === selectedStoreId);
+
+  const handleStoreUpdated = (updatedStore: StoreType) => {
+    setStores((currentStores) =>
+      currentStores.map((store) => store.id === updatedStore.id ? updatedStore : store)
+    );
   };
 
   if (loadingStores) {
@@ -202,8 +214,10 @@ export default function AdminDashboard() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
         <div className="p-4 md:p-6 max-w-7xl mx-auto">
-          {selectedStoreId ? (
+          {selectedStoreId && selectedStore ? (
             <>
+              <StoreStatusControls store={selectedStore} onStoreUpdated={handleStoreUpdated} />
+              {activeTab === 'instoreOrder' && <AdminCreateOrder storeId={selectedStoreId} onViewOrders={() => setActiveTab('orders')} />}
               {activeTab === 'orders' && <AdminOrders storeId={selectedStoreId} />}
               {activeTab === 'stock' && <AdminStock storeId={selectedStoreId} />}
               {activeTab === 'menu' && <AdminMenu storeId={selectedStoreId} />}

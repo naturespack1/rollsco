@@ -44,6 +44,7 @@ export interface Order {
   orderNo: string;
   status: string;
   paymentStatus: string;
+  paymentMethod?: 'ONLINE' | 'INSTORE';
   total: number;
   customerPhone: string;
   customerName?: string;
