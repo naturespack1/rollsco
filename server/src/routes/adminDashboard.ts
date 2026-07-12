@@ -139,15 +139,22 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   app.get('/orders', { preHandler: [authenticate] }, async (request, reply) => {
     const query = request.query as any;
     const storeId = query.storeId as string;
-    const status = query.status as string | undefined;
+    // `statuses` accepts a comma-separated list so the dashboard can combine
+    // multiple order-status filters. Keep the legacy `status` parameter too.
+    const requestedStatuses = String(query.statuses || query.status || '')
+      .split(',')
+      .map((status) => status.trim())
+      .filter(Boolean);
+    const invalidStatus = requestedStatuses.find((status) => !statusEnum.safeParse(status).success);
     const page = Math.max(1, parseInt(query.page || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(query.limit || '20', 10)));
 
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
+    if (invalidStatus) return reply.status(400).send({ success: false, error: `Invalid order status: ${invalidStatus}` });
     if (!(await enforceStoreAccess(request, reply, storeId))) return;
 
     const where: any = { storeId };
-    if (status) where.status = status;
+    if (requestedStatuses.length > 0) where.status = { in: requestedStatuses };
 
       const [orders, total] = await Promise.all([
         prisma.order.findMany({

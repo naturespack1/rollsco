@@ -30,12 +30,16 @@ const AdminStaff = lazy(() => import('./AdminStaff'));
 
 type Tab = 'instoreOrder' | 'orders' | 'stock' | 'menu' | 'reports' | 'staff';
 
-const baseTabs: { id: Tab; label: string; icon: any }[] = [
+const managerTabs: { id: Tab; label: string; icon: any }[] = [
   { id: 'instoreOrder', label: 'New Order', icon: CirclePlus },
   { id: 'orders', label: 'Orders', icon: ShoppingBag },
   { id: 'stock', label: 'Stock', icon: Package },
+];
+
+const superAdminTabs: { id: Tab; label: string; icon: any }[] = [
   { id: 'menu', label: 'Menu', icon: UtensilsCrossed },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
+  { id: 'staff', label: 'Staff', icon: Users },
 ];
 
 export default function AdminDashboard() {
@@ -49,9 +53,8 @@ export default function AdminDashboard() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadingStores, setLoadingStores] = useState(true);
 
-  const tabs = admin?.role === 'SUPER_ADMIN'
-    ? [...baseTabs, { id: 'staff' as Tab, label: 'Staff', icon: Users }]
-    : baseTabs;
+  const isSuperAdmin = admin?.role === 'SUPER_ADMIN';
+  const tabs = isSuperAdmin ? [...managerTabs, ...superAdminTabs] : managerTabs;
 
   useEffect(() => {
     api.get('/stores').then((res) => {
@@ -220,9 +223,9 @@ export default function AdminDashboard() {
               {activeTab === 'instoreOrder' && <AdminCreateOrder storeId={selectedStoreId} onViewOrders={() => setActiveTab('orders')} />}
               {activeTab === 'orders' && <AdminOrders storeId={selectedStoreId} />}
               {activeTab === 'stock' && <AdminStock storeId={selectedStoreId} />}
-              {activeTab === 'menu' && <AdminMenu storeId={selectedStoreId} />}
-              {activeTab === 'reports' && <AdminReports storeId={selectedStoreId} />}
-              {activeTab === 'staff' && (
+              {isSuperAdmin && activeTab === 'menu' && <AdminMenu storeId={selectedStoreId} />}
+              {isSuperAdmin && activeTab === 'reports' && <AdminReports storeId={selectedStoreId} />}
+              {isSuperAdmin && activeTab === 'staff' && (
                 <Suspense
                   fallback={
                     <div className="flex justify-center py-20">

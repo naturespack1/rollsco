@@ -30,6 +30,12 @@ const statusIcons = {
   DELIVERED: CheckCircle,
 };
 
+const orderStatusFilters = [
+  { value: 'CREATED', label: 'Created' },
+  { value: 'PROCESSING', label: 'Processing' },
+  { value: 'DELIVERED', label: 'Delivered' },
+];
+
 interface AdminOrdersProps {
   storeId: string;
 }
@@ -42,7 +48,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
     Object.entries(cached).forEach(([id, data]) => { map[id] = data.status; });
     return map;
   });
-  const [filter, setFilter] = useState<string>('ALL');
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSyncLocal] = useState<string>('');
@@ -55,6 +61,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
   const [storeAddress, setStoreAddress] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleSyncRef = useRef<((silent?: boolean) => Promise<void>) | null>(null);
+  const filterKey = selectedStatuses.length > 0 ? [...selectedStatuses].sort().join(',') : 'ALL';
 
   // Cache store
   const cachedOrders = useAdminCacheStore((s) => s.ordersCache);
@@ -77,7 +84,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
   // Load from cache immediately, then fetch fresh
   const loadOrders = useCallback(async (forceFetch = false) => {
     setError(null);
-    const cache = getCachedOrders(storeId, filter);
+    const cache = getCachedOrders(storeId, filterKey);
 
     // Show cache first if available and not stale (or offline)
     if (cache && !forceFetch) {
@@ -94,7 +101,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
     setLoading(true);
     try {
       const res = await api.get('/admin/orders', {
-        params: { storeId, status: filter === 'ALL' ? undefined : filter },
+        params: { storeId, statuses: selectedStatuses.length > 0 ? selectedStatuses.join(',') : undefined },
       });
       const data = res.data.data?.orders || [];
       setOrders(data);
@@ -105,7 +112,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
         limit: res.data.data?.limit || 20,
         fetchedAt: new Date().toISOString(),
         storeId,
-        filter,
+        filter: filterKey,
       });
       setFromCache(false);
       setIsOffline(false);
@@ -121,7 +128,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
     } finally {
       setLoading(false);
     }
-  }, [storeId, filter, isOffline, getCachedOrders, setCachedOrders, isStale]);
+  }, [storeId, filterKey, selectedStatuses, isOffline, getCachedOrders, setCachedOrders, isStale]);
 
   useEffect(() => {
     loadOrders();
@@ -205,6 +212,14 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
 
 
 
+  const toggleStatusFilter = (status: string) => {
+    setSelectedStatuses((current) =>
+      current.includes(status)
+        ? current.filter((selectedStatus) => selectedStatus !== status)
+        : [...current, status]
+    );
+  };
+
   const toggleExpand = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -217,7 +232,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
   return (
     <div className="space-y-4">
       {/* Status bar */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-bold text-white">Active Orders</h2>
           {isOffline && (
@@ -232,18 +247,43 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 bg-gray-800 rounded-lg border border-gray-700 px-2 py-1.5">
-            <Filter className="w-3.5 h-3.5 text-gray-400" />
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="bg-transparent text-xs text-gray-200 focus:outline-none"
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-800 p-1.5">
+            <span className="flex items-center gap-1 px-1.5 text-xs font-semibold text-gray-200">
+              <Filter className="h-3.5 w-3.5 text-brand-400" />
+              Filter orders
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedStatuses([])}
+              aria-pressed={selectedStatuses.length === 0}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs font-medium transition',
+                selectedStatuses.length === 0
+                  ? 'bg-brand-600 text-white'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              )}
             >
-              <option value="ALL">All</option>
-              <option value="CREATED">Created</option>
-              <option value="PROCESSING">Processing</option>
-              <option value="DELIVERED">Delivered</option>
-            </select>
+              All statuses
+            </button>
+            {orderStatusFilters.map((status) => {
+              const isSelected = selectedStatuses.includes(status.value);
+              return (
+                <button
+                  key={status.value}
+                  type="button"
+                  onClick={() => toggleStatusFilter(status.value)}
+                  aria-pressed={isSelected}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition',
+                    isSelected
+                      ? 'bg-brand-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  )}
+                >
+                  {status.label}
+                </button>
+              );
+            })}
           </div>
 
           <select
