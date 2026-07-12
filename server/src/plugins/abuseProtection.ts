@@ -8,6 +8,7 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 const WINDOW_MS = 60 * 1000;
+const IP_LIMIT = 20;
 const PHONE_LIMIT = 6;
 const DEVICE_LIMIT = 12;
 
@@ -36,8 +37,7 @@ function getHeaderValue(value: string | string[] | undefined) {
 }
 
 /**
- * Supplemental per-phone and per-device protection for public checkout.
- * IP limiting is provided by @fastify/rate-limit on the route itself.
+ * Per-IP, per-phone, and per-device protection for public checkout.
  *
  * This in-memory guard is suitable for a single process. Production deployments
  * with multiple instances should replace it with a shared Redis-backed limiter.
@@ -49,7 +49,9 @@ export async function checkoutAbuseGuard(request: FastifyRequest, reply: Fastify
     : '';
   const deviceId = getHeaderValue(request.headers['x-device-id']);
 
-  const limits: Array<{ key: string; limit: number }> = [];
+  const limits: Array<{ key: string; limit: number }> = [
+    { key: hashedKey('ip', request.ip), limit: IP_LIMIT },
+  ];
   if (phone.length >= 10) limits.push({ key: hashedKey('phone', phone), limit: PHONE_LIMIT });
   if (deviceId && /^[a-zA-Z0-9-]{16,128}$/.test(deviceId)) {
     limits.push({ key: hashedKey('device', deviceId), limit: DEVICE_LIMIT });

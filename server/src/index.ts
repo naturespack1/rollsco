@@ -3,7 +3,6 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
-import rateLimit from '@fastify/rate-limit';
 import rawBody from 'fastify-raw-body';
 import { env } from './config';
 import { prisma } from './prismaClient';
@@ -36,14 +35,23 @@ app.register(helmet, {
   },
   referrerPolicy: { policy: 'no-referrer' },
 });
+const allowedOrigins = env.FRONTEND_ORIGIN
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
 app.register(cors, {
-  origin: env.FRONTEND_ORIGIN || false,
+  origin: (origin: string | undefined, callback: (error: Error | null, allow: boolean) => void) => {
+    // Allow non-browser callers such as health checks and server-to-server jobs.
+    if (!origin) return callback(null, true);
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    const allowed = env.NODE_ENV !== 'production' || allowedOrigins.includes(normalizedOrigin);
+    return callback(null, allowed);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Device-Id'],
+  maxAge: 86400,
   credentials: false,
-});
-app.register(rateLimit, {
-  global: false,
-  max: 100,
-  timeWindow: '1 minute',
 });
 app.register(rawBody, { field: 'rawBody', global: false, encoding: false, runFirst: true });
 app.register(jwt, { secret: env.JWT_SECRET });

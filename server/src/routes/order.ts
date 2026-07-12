@@ -66,7 +66,6 @@ async function findIdempotentOrder(idempotencyKey: string) {
 
 export default async function orderRoutes(app: FastifyInstance) {
   app.post('/create', {
-    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     preHandler: [checkoutAbuseGuard],
   }, async (request, reply) => {
     const body = cartSchema.parse(request.body);
@@ -145,7 +144,7 @@ export default async function orderRoutes(app: FastifyInstance) {
   });
 
   app.post('/verify', {
-    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
+    preHandler: [checkoutAbuseGuard],
   }, async (request, reply) => {
     const verifySchema = z.object({
       orderId: z.string().uuid(),
