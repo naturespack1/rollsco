@@ -3,6 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../prismaClient';
 import { generateDailySalesExcel } from '../services/exportService';
+import { createInstoreOrder } from '../services/orderService';
 import { authenticate } from '../plugins/auth';
 
 const statusEnum = z.enum(['CREATED', 'PROCESSING', 'DELIVERED']);
@@ -20,6 +21,26 @@ const syncSchema = z.object({
 const stockSchema = z.object({
   itemId: z.string().uuid(),
   stock: z.number().int().min(0),
+});
+
+const storeStatusSchema = z.object({
+  isOpen: z.boolean().optional(),
+  acceptingOrders: z.boolean().optional(),
+}).refine((data) => data.isOpen !== undefined || data.acceptingOrders !== undefined, {
+  message: 'At least one store status value is required.',
+});
+
+const instoreOrderSchema = z.object({
+  storeId: z.string().uuid(),
+  customerPhone: z.string().min(10).max(15),
+  customerName: z.string().max(100).optional(),
+  customerMessage: z.string().max(500).optional(),
+  items: z.array(
+    z.object({
+      id: z.string().uuid(),
+      quantity: z.number().int().min(1).max(20),
+    })
+  ).min(1),
 });
 
 const createItemSchema = z.object({
@@ -61,9 +82,57 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   // Middleware to enforce store access
   const enforceStoreAccess = async (request: any, reply: any, storeId: string) => {
     if (request.admin.role !== 'SUPER_ADMIN' && !request.admin.storeIds.includes(storeId)) {
-      return reply.status(403).send({ success: false, error: 'Access denied for this store.' });
+      reply.status(403).send({ success: false, error: 'Access denied for this store.' });
+      return false;
     }
+    return true;
   };
+
+  // ─── Store status ───
+
+  app.patch('/stores/:storeId/status', { preHandler: [authenticate] }, async (request, reply) => {
+    const { storeId } = request.params as { storeId: string };
+    const body = storeStatusSchema.parse(request.body);
+
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
+
+    const store = await prisma.store.findUnique({ where: { id: storeId } });
+    if (!store) return reply.status(404).send({ success: false, error: 'Store not found.' });
+
+    const updated = await prisma.store.update({
+      where: { id: storeId },
+      data: {
+        ...(body.isOpen !== undefined ? { isOpen: body.isOpen } : {}),
+        ...(body.acceptingOrders !== undefined ? { acceptingOrders: body.acceptingOrders } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        isOpen: true,
+        acceptingOrders: true,
+      },
+    });
+
+    return { success: true, data: updated };
+  });
+
+  // ─── Instore orders ───
+
+  app.post('/orders/instore', { preHandler: [authenticate] }, async (request, reply) => {
+    const body = instoreOrderSchema.parse(request.body);
+    if (!(await enforceStoreAccess(request, reply, body.storeId))) return;
+
+    const order = await createInstoreOrder(
+      body.storeId,
+      body.customerPhone,
+      body.customerName,
+      body.customerMessage,
+      body.items as { id: string; quantity: number }[]
+    );
+
+    return reply.status(201).send({ success: true, data: order });
+  });
 
   // ─── Orders ───
 
@@ -75,7 +144,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const limit = Math.min(100, Math.max(1, parseInt(query.limit || '20', 10)));
 
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
-    await enforceStoreAccess(request, reply, storeId);
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
 
     const where: any = { storeId };
     if (status) where.status = status;
@@ -99,7 +168,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const query = request.query as any;
     const storeId = query.storeId as string;
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
-    await enforceStoreAccess(request, reply, storeId);
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
 
     for (const up of body.updates) {
       await prisma.order.update({
@@ -127,7 +196,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const storeId = query.storeId as string;
     const after = query.after as string | undefined;
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
-    await enforceStoreAccess(request, reply, storeId);
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
 
     const where: any = { storeId };
     if (after) {
@@ -151,7 +220,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const body = stockSchema.parse(request.body);
     const item = await prisma.item.findUnique({ where: { id: body.itemId }, include: { store: true } });
     if (!item) return reply.status(404).send({ success: false, error: 'Item not found' });
-    await enforceStoreAccess(request, reply, item.storeId);
+    if (!(await enforceStoreAccess(request, reply, item.storeId))) return;
 
     const updated = await prisma.item.update({
       where: { id: body.itemId },
@@ -165,7 +234,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
 
   app.get('/menu/:storeId', { preHandler: [authenticate] }, async (request, reply) => {
     const { storeId } = request.params as { storeId: string };
-    await enforceStoreAccess(request as any, reply, storeId);
+    if (!(await enforceStoreAccess(request as any, reply, storeId))) return;
 
     const items = await prisma.item.findMany({
       where: { storeId },
@@ -199,7 +268,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       return reply.status(403).send({ success: false, error: 'Only Super Admin can add items.' });
     }
     const body = createItemSchema.parse(request.body);
-    await enforceStoreAccess(request, reply, body.storeId);
+    if (!(await enforceStoreAccess(request, reply, body.storeId))) return;
 
     const item = await prisma.item.create({
       data: {
@@ -223,7 +292,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const body = updateItemSchema.parse(request.body);
     const existing = await prisma.item.findUnique({ where: { id: body.itemId }, include: { store: true } });
     if (!existing) return reply.status(404).send({ success: false, error: 'Item not found' });
-    await enforceStoreAccess(request, reply, existing.storeId);
+    if (!(await enforceStoreAccess(request, reply, existing.storeId))) return;
 
     const { itemId, ...data } = body;
     const item = await prisma.item.update({
@@ -237,7 +306,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const { itemId } = request.params as { itemId: string };
     const item = await prisma.item.findUnique({ where: { id: itemId }, include: { store: true } });
     if (!item) return reply.status(404).send({ success: false, error: 'Item not found' });
-    await enforceStoreAccess(request, reply, item.storeId);
+    if (!(await enforceStoreAccess(request, reply, item.storeId))) return;
 
     await prisma.item.delete({ where: { id: itemId } });
     return { success: true };
@@ -304,7 +373,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const storeId = query.storeId as string;
     const days = parseInt(query.days || '30', 10);
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
-    await enforceStoreAccess(request as any, reply, storeId);
+    if (!(await enforceStoreAccess(request as any, reply, storeId))) return;
 
     const since = days > 0
       ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
@@ -326,12 +395,59 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     return { success: true, data: items };
   });
 
+  app.get('/payment-summary', { preHandler: [authenticate] }, async (request, reply) => {
+    const query = request.query as any;
+    const storeId = query.storeId as string;
+    const requestedDays = parseInt(query.days || '30', 10);
+    const days = Number.isFinite(requestedDays) ? Math.min(36500, Math.max(0, requestedDays)) : 30;
+
+    if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
+    if (!(await enforceStoreAccess(request as any, reply, storeId))) return;
+
+    const since = days > 0
+      ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      : undefined;
+
+    const groups = await prisma.order.groupBy({
+      by: ['paymentMethod'],
+      where: {
+        storeId,
+        paymentStatus: 'PAID',
+        ...(since ? { createdAt: { gte: since } } : {}),
+      },
+      _sum: { total: true },
+      _count: { _all: true },
+    });
+
+    const summary = {
+      online: { amount: 0, orders: 0 },
+      instore: { amount: 0, orders: 0 },
+    };
+
+    for (const group of groups) {
+      const bucket = group.paymentMethod === 'INSTORE' ? summary.instore : summary.online;
+      bucket.amount = group._sum.total?.toNumber() || 0;
+      bucket.orders = group._count._all;
+    }
+
+    return {
+      success: true,
+      data: {
+        ...summary,
+        total: {
+          amount: summary.online.amount + summary.instore.amount,
+          orders: summary.online.orders + summary.instore.orders,
+        },
+      },
+    };
+  });
+
   app.get('/export/daily', { preHandler: [authenticate] }, async (request, reply) => {
     const query = request.query as any;
     const storeId = query.storeId as string;
     const dateStr = query.date as string;
     if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
-    await enforceStoreAccess(request as any, reply, storeId);
+    if (!(await enforceStoreAccess(request as any, reply, storeId))) return;
 
     const date = dateStr ? new Date(dateStr) : new Date();
     const buffer = await generateDailySalesExcel(storeId, date);

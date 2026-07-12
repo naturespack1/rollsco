@@ -9,47 +9,71 @@ interface CartItem {
   quantity: number;
 }
 
-export async function createPendingOrder(
+interface OrderCreationOptions {
+  paymentStatus: 'PENDING' | 'PAID';
+  paymentMethod: 'ONLINE' | 'INSTORE';
+}
+
+interface LineItem {
+  name: string;
+  inclusivePrice: number;
+  quantity: number;
+  gstRate: number;
+  itemId: string;
+}
+
+/**
+ * Validates the cart, deducts stock, and persists an order atomically.
+ * Payment processing is intentionally left to the caller so both online and
+ * instore orders use the same stock and GST calculations.
+ */
+async function createOrderWithStock(
   storeId: string,
   customerPhone: string,
   customerName: string | undefined,
   customerMessage: string | undefined,
-  cartItems: CartItem[]
+  cartItems: CartItem[],
+  options: OrderCreationOptions
 ) {
-  // 1. DB Transaction: validate, lock stock, create order
-  const { order, lineItems } = await prisma.$transaction(async (tx) => {
-    const itemIds = cartItems.map((c) => c.id);
-
+  return prisma.$transaction(async (tx) => {
+    // Merge repeated item IDs before validating stock. This protects the API
+    // even if a caller bypasses the client-side cart's one-line-per-item rule.
+    const quantitiesByItemId = new Map<string, number>();
+    for (const cartItem of cartItems) {
+      quantitiesByItemId.set(
+        cartItem.id,
+        (quantitiesByItemId.get(cartItem.id) || 0) + cartItem.quantity
+      );
+    }
+    const normalizedCartItems = Array.from(quantitiesByItemId, ([id, quantity]) => ({ id, quantity }));
+    if (normalizedCartItems.some((cartItem) => cartItem.quantity > 20)) {
+      throw new Error('A maximum of 20 units per item can be ordered.');
+    }
+    const itemIds = normalizedCartItems.map((cartItem) => cartItem.id);
     const items = await tx.item.findMany({
       where: { id: { in: itemIds }, storeId },
     });
+    const itemMap = new Map(items.map((item) => [item.id, item]));
+    const lineItems: LineItem[] = [];
 
-    const itemMap = new Map(items.map((i) => [i.id, i]));
-
-    const lineItems: {
-      name: string;
-      inclusivePrice: number;
-      quantity: number;
-      gstRate: number;
-      itemId: string;
-    }[] = [];
-
-    for (const cartItem of cartItems) {
+    for (const cartItem of normalizedCartItems) {
       const item = itemMap.get(cartItem.id);
       if (!item) throw new Error(`Item not found: ${cartItem.id}`);
-      if (item.stock < cartItem.quantity) throw new Error(`${item.name} is out of stock. Only ${item.stock} left.`);
+      if (!item.isAvailable) throw new Error(`${item.name} is currently unavailable.`);
+      if (item.stock < cartItem.quantity) {
+        throw new Error(`${item.name} is out of stock. Only ${item.stock} left.`);
+      }
 
       lineItems.push({
         name: item.name,
-        inclusivePrice: item.price.toNumber(), // GST-inclusive menu price
+        inclusivePrice: item.price.toNumber(),
         quantity: cartItem.quantity,
         gstRate: item.gstRate.toNumber(),
         itemId: item.id,
       });
     }
 
-    // Deduct stock
-    for (const cartItem of cartItems) {
+    for (const cartItem of normalizedCartItems) {
       await tx.item.update({
         where: { id: cartItem.id },
         data: { stock: { decrement: cartItem.quantity } },
@@ -57,10 +81,10 @@ export async function createPendingOrder(
     }
 
     const gstCalc = calculateGstFromInclusive(
-      lineItems.map((li) => ({
-        inclusivePrice: li.inclusivePrice,
-        quantity: li.quantity,
-        gstRate: li.gstRate,
+      lineItems.map((lineItem) => ({
+        inclusivePrice: lineItem.inclusivePrice,
+        quantity: lineItem.quantity,
+        gstRate: lineItem.gstRate,
       }))
     );
     const orderNo = await generateOrderNumber();
@@ -73,63 +97,109 @@ export async function createPendingOrder(
         customerName: customerName || null,
         customerMessage: customerMessage || null,
         status: 'CREATED',
-        paymentStatus: 'PENDING',
-        subtotal: gstCalc.subtotal, // base price total (before tax)
+        paymentStatus: options.paymentStatus,
+        paymentMethod: options.paymentMethod,
+        subtotal: gstCalc.subtotal,
         cgstAmount: gstCalc.cgstAmount,
         sgstAmount: gstCalc.sgstAmount,
-        total: gstCalc.total, // sum of menu prices (what customer pays)
+        total: gstCalc.total,
         idempotencyKey: `${orderNo}-${Date.now()}`,
         items: {
-          create: lineItems.map((li) => {
-            const lineTotal = li.inclusivePrice * li.quantity;
-            const gstMultiplier = 1 + li.gstRate / 100;
+          create: lineItems.map((lineItem) => {
+            const lineTotal = lineItem.inclusivePrice * lineItem.quantity;
+            const gstMultiplier = 1 + lineItem.gstRate / 100;
             const basePrice = lineTotal / gstMultiplier;
             return {
-              itemId: li.itemId,
-              itemName: li.name,
-              quantity: li.quantity,
-              unitPrice: Math.round(li.inclusivePrice * 100) / 100, // Inclusive price per unit (menu price)
-              totalPrice: Math.round(lineTotal * 100) / 100, // Inclusive total for this line
-              basePrice: Math.round(basePrice / li.quantity * 100) / 100, // Base price per unit
-              baseTotal: Math.round(basePrice * 100) / 100, // Base total for this line
-              gstRate: li.gstRate,
+              itemId: lineItem.itemId,
+              itemName: lineItem.name,
+              quantity: lineItem.quantity,
+              unitPrice: Math.round(lineItem.inclusivePrice * 100) / 100,
+              totalPrice: Math.round(lineTotal * 100) / 100,
+              basePrice: Math.round((basePrice / lineItem.quantity) * 100) / 100,
+              baseTotal: Math.round(basePrice * 100) / 100,
+              gstRate: lineItem.gstRate,
             };
           }),
         },
       },
+      include: { items: true },
     });
 
     return { order, lineItems };
   }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 });
+}
 
-  // 2. Create Razorpay order (outside DB transaction to avoid holding locks)
+export async function createPendingOrder(
+  storeId: string,
+  customerPhone: string,
+  customerName: string | undefined,
+  customerMessage: string | undefined,
+  cartItems: CartItem[]
+) {
+  // 1. DB transaction: validate cart, reserve stock, and create the pending online order.
+  const { order, lineItems } = await createOrderWithStock(
+    storeId,
+    customerPhone,
+    customerName,
+    customerMessage,
+    cartItems,
+    { paymentStatus: 'PENDING', paymentMethod: 'ONLINE' }
+  );
+
+  // 2. Create the Razorpay order outside the DB transaction to avoid holding locks.
   const gstCalc = calculateGstFromInclusive(
-    lineItems.map((li) => ({
-      inclusivePrice: li.inclusivePrice,
-      quantity: li.quantity,
-      gstRate: li.gstRate,
+    lineItems.map((lineItem) => ({
+      inclusivePrice: lineItem.inclusivePrice,
+      quantity: lineItem.quantity,
+      gstRate: lineItem.gstRate,
     }))
   );
+
   let razorpayOrder;
   try {
     razorpayOrder = await createRazorpayOrder(
-      Math.round(gstCalc.total * 100), // amount in paise (inclusive total)
+      Math.round(gstCalc.total * 100),
       order.orderNo,
       { orderId: order.id, storeId }
     );
   } catch (err) {
-    // If Razorpay fails, restore stock and delete the pending order
+    // If Razorpay fails, restore stock and mark the pending order as failed.
     await failOrder(order.id);
     throw new Error('Payment gateway error. Please try again.');
   }
 
-  // 3. Update order with Razorpay order ID
+  // 3. Store the payment gateway order ID for later verification.
   await prisma.order.update({
     where: { id: order.id },
     data: { razorpayOrderId: razorpayOrder.id },
   });
 
-  return { order, razorpayOrderId: razorpayOrder.id, amount: Math.round(gstCalc.total * 100), lineItems };
+  return {
+    order,
+    razorpayOrderId: razorpayOrder.id,
+    amount: Math.round(gstCalc.total * 100),
+    lineItems,
+  };
+}
+
+/** Creates a paid instore order without invoking an online payment gateway. */
+export async function createInstoreOrder(
+  storeId: string,
+  customerPhone: string,
+  customerName: string | undefined,
+  customerMessage: string | undefined,
+  cartItems: CartItem[]
+) {
+  const { order } = await createOrderWithStock(
+    storeId,
+    customerPhone,
+    customerName,
+    customerMessage,
+    cartItems,
+    { paymentStatus: 'PAID', paymentMethod: 'INSTORE' }
+  );
+
+  return order;
 }
 
 export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: string) {
@@ -139,11 +209,11 @@ export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: 
       include: { store: true },
     });
     if (!order) throw new Error('Order not found');
-    if (order.paymentStatus === 'PAID') return order; // Idempotent
+    if (order.paymentStatus === 'PAID') return order;
 
     const updated = await tx.order.update({
       where: { id: order.id },
-      data: { paymentStatus: 'PAID', razorpayPaymentId },
+      data: { paymentStatus: 'PAID', paymentMethod: 'ONLINE', razorpayPaymentId },
     });
 
     await sendOrderSms(order.customerPhone, order.orderNo, order.store.name, order.total.toNumber());
@@ -161,11 +231,10 @@ export async function failOrder(orderIdOrRazorpayId: string) {
     });
     if (!order || order.paymentStatus !== 'PENDING') return order;
 
-    // Restore stock
-    for (const oi of order.items) {
+    for (const orderItem of order.items) {
       await tx.item.update({
-        where: { id: oi.itemId },
-        data: { stock: { increment: oi.quantity } },
+        where: { id: orderItem.itemId },
+        data: { stock: { increment: orderItem.quantity } },
       });
     }
 
@@ -177,7 +246,7 @@ export async function failOrder(orderIdOrRazorpayId: string) {
 }
 
 export async function expireOldPendingOrders() {
-  const expiry = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes
+  const expiry = new Date(Date.now() - 15 * 60 * 1000);
   const orders = await prisma.order.findMany({
     where: { paymentStatus: 'PENDING', createdAt: { lt: expiry } },
   });

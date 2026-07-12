@@ -55,6 +55,7 @@ model Order {
   customerMessage   String?       @db.Text
   status            OrderStatus   @default(CREATED)
   paymentStatus     PaymentStatus @default(PENDING)
+  paymentMethod     PaymentMethod @default(ONLINE)
   razorpayOrderId   String?       @unique
   razorpayPaymentId String?
   idempotencyKey    String?       @unique
@@ -117,6 +118,11 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUNDED
+}
+
+enum PaymentMethod {
+  ONLINE
+  INSTORE
 }
 
 enum AdminRole {

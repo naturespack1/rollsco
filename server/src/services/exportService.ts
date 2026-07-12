@@ -29,7 +29,7 @@ export async function generateDailySalesExcel(storeId: string, date: Date) {
     { header: 'CGST', key: 'cgst', width: 10 },
     { header: 'SGST', key: 'sgst', width: 10 },
     { header: 'Grand Total', key: 'grandTotal', width: 12 },
-    { header: 'Payment', key: 'payment', width: 10 },
+    { header: 'Payment Method', key: 'payment', width: 18 },
   ];
 
   for (const order of orders) {
@@ -46,7 +46,7 @@ export async function generateDailySalesExcel(storeId: string, date: Date) {
         cgst: order.cgstAmount.toNumber(),
         sgst: order.sgstAmount.toNumber(),
         grandTotal: order.total.toNumber(),
-        payment: 'PAID',
+        payment: order.paymentMethod === 'INSTORE' ? 'INSTORE' : 'ONLINE',
       });
     }
   }
