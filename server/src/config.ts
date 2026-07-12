@@ -27,5 +27,7 @@ export const env = {
   MSG91_TEMPLATE_ID: process.env.MSG91_TEMPLATE_ID || 'order_confirmation',
   ADMIN_DEFAULT_EMAIL: process.env.ADMIN_DEFAULT_EMAIL || '',
   ADMIN_DEFAULT_PASSWORD: process.env.ADMIN_DEFAULT_PASSWORD || '',
-  FRONTEND_ORIGIN: requiredInProduction('FRONTEND_ORIGIN'),
+  // Optional at startup so a missing CORS configuration cannot take down every
+  // API route. Set this in production to the deployed frontend origin(s).
+  FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || '',
 };
