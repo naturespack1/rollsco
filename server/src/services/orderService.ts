@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prismaClient';
 import { calculateGstFromInclusive } from '../utils/gstCalc';
 import { generateOrderNumber } from '../utils/orderNumber';
@@ -12,6 +13,8 @@ interface CartItem {
 interface OrderCreationOptions {
   paymentStatus: 'PENDING' | 'PAID';
   paymentMethod: 'ONLINE' | 'INSTORE';
+  idempotencyKey?: string;
+  createdByAdminId?: string;
 }
 
 interface LineItem {
@@ -22,10 +25,12 @@ interface LineItem {
   itemId: string;
 }
 
+const MAX_DISTINCT_CART_ITEMS = 30;
+
 /**
- * Validates the cart, deducts stock, and persists an order atomically.
- * Payment processing is intentionally left to the caller so both online and
- * instore orders use the same stock and GST calculations.
+ * Validates the cart, conditionally deducts stock, and persists an order in a
+ * single serializable transaction. Payment processing is intentionally left to
+ * the caller so online and instore orders share the same inventory/GST rules.
  */
 async function createOrderWithStock(
   storeId: string,
@@ -36,8 +41,6 @@ async function createOrderWithStock(
   options: OrderCreationOptions
 ) {
   return prisma.$transaction(async (tx) => {
-    // Merge repeated item IDs before validating stock. This protects the API
-    // even if a caller bypasses the client-side cart's one-line-per-item rule.
     const quantitiesByItemId = new Map<string, number>();
     for (const cartItem of cartItems) {
       quantitiesByItemId.set(
@@ -45,10 +48,15 @@ async function createOrderWithStock(
         (quantitiesByItemId.get(cartItem.id) || 0) + cartItem.quantity
       );
     }
+
     const normalizedCartItems = Array.from(quantitiesByItemId, ([id, quantity]) => ({ id, quantity }));
+    if (normalizedCartItems.length > MAX_DISTINCT_CART_ITEMS) {
+      throw new Error(`A maximum of ${MAX_DISTINCT_CART_ITEMS} different items can be ordered.`);
+    }
     if (normalizedCartItems.some((cartItem) => cartItem.quantity > 20)) {
       throw new Error('A maximum of 20 units per item can be ordered.');
     }
+
     const itemIds = normalizedCartItems.map((cartItem) => cartItem.id);
     const items = await tx.item.findMany({
       where: { id: { in: itemIds }, storeId },
@@ -73,11 +81,21 @@ async function createOrderWithStock(
       });
     }
 
+    // Re-check stock at write time. This prevents an absolute stock update or a
+    // concurrent order from silently allowing negative inventory.
     for (const cartItem of normalizedCartItems) {
-      await tx.item.update({
-        where: { id: cartItem.id },
+      const updated = await tx.item.updateMany({
+        where: {
+          id: cartItem.id,
+          storeId,
+          isAvailable: true,
+          stock: { gte: cartItem.quantity },
+        },
         data: { stock: { decrement: cartItem.quantity } },
       });
+      if (updated.count !== 1) {
+        throw new Error('One or more items changed while the order was being placed. Please refresh and try again.');
+      }
     }
 
     const gstCalc = calculateGstFromInclusive(
@@ -87,7 +105,7 @@ async function createOrderWithStock(
         gstRate: lineItem.gstRate,
       }))
     );
-    const orderNo = await generateOrderNumber();
+    const orderNo = await generateOrderNumber(tx);
 
     const order = await tx.order.create({
       data: {
@@ -96,6 +114,7 @@ async function createOrderWithStock(
         customerPhone,
         customerName: customerName || null,
         customerMessage: customerMessage || null,
+        createdByAdminId: options.createdByAdminId || null,
         status: 'CREATED',
         paymentStatus: options.paymentStatus,
         paymentMethod: options.paymentMethod,
@@ -103,7 +122,7 @@ async function createOrderWithStock(
         cgstAmount: gstCalc.cgstAmount,
         sgstAmount: gstCalc.sgstAmount,
         total: gstCalc.total,
-        idempotencyKey: `${orderNo}-${Date.now()}`,
+        idempotencyKey: options.idempotencyKey || null,
         items: {
           create: lineItems.map((lineItem) => {
             const lineTotal = lineItem.inclusivePrice * lineItem.quantity;
@@ -126,7 +145,7 @@ async function createOrderWithStock(
     });
 
     return { order, lineItems };
-  }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5000, timeout: 10000 });
 }
 
 export async function createPendingOrder(
@@ -134,19 +153,18 @@ export async function createPendingOrder(
   customerPhone: string,
   customerName: string | undefined,
   customerMessage: string | undefined,
-  cartItems: CartItem[]
+  cartItems: CartItem[],
+  idempotencyKey: string
 ) {
-  // 1. DB transaction: validate cart, reserve stock, and create the pending online order.
   const { order, lineItems } = await createOrderWithStock(
     storeId,
     customerPhone,
     customerName,
     customerMessage,
     cartItems,
-    { paymentStatus: 'PENDING', paymentMethod: 'ONLINE' }
+    { paymentStatus: 'PENDING', paymentMethod: 'ONLINE', idempotencyKey }
   );
 
-  // 2. Create the Razorpay order outside the DB transaction to avoid holding locks.
   const gstCalc = calculateGstFromInclusive(
     lineItems.map((lineItem) => ({
       inclusivePrice: lineItem.inclusivePrice,
@@ -162,13 +180,11 @@ export async function createPendingOrder(
       order.orderNo,
       { orderId: order.id, storeId }
     );
-  } catch (err) {
-    // If Razorpay fails, restore stock and mark the pending order as failed.
+  } catch {
     await failOrder(order.id);
     throw new Error('Payment gateway error. Please try again.');
   }
 
-  // 3. Store the payment gateway order ID for later verification.
   await prisma.order.update({
     where: { id: order.id },
     data: { razorpayOrderId: razorpayOrder.id },
@@ -188,7 +204,8 @@ export async function createInstoreOrder(
   customerPhone: string,
   customerName: string | undefined,
   customerMessage: string | undefined,
-  cartItems: CartItem[]
+  cartItems: CartItem[],
+  createdByAdminId: string
 ) {
   const { order } = await createOrderWithStock(
     storeId,
@@ -196,29 +213,66 @@ export async function createInstoreOrder(
     customerName,
     customerMessage,
     cartItems,
-    { paymentStatus: 'PAID', paymentMethod: 'INSTORE' }
+    {
+      paymentStatus: 'PAID',
+      paymentMethod: 'INSTORE',
+      createdByAdminId,
+    }
   );
 
   return order;
 }
 
+/**
+ * Marks only a still-pending order as paid. An expired/failed order must be
+ * reconciled manually; accepting it here would create a paid order whose stock
+ * was already returned.
+ */
 export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { razorpayOrderId },
       include: { store: true },
     });
     if (!order) throw new Error('Order not found');
-    if (order.paymentStatus === 'PAID') return order;
+    if (order.paymentStatus === 'PAID') return { order, shouldSendSms: false };
+    if (order.paymentStatus !== 'PENDING') {
+      throw new Error('Order is no longer pending payment and requires reconciliation.');
+    }
 
-    const updated = await tx.order.update({
-      where: { id: order.id },
-      data: { paymentStatus: 'PAID', paymentMethod: 'ONLINE', razorpayPaymentId },
+    const updated = await tx.order.updateMany({
+      where: { id: order.id, paymentStatus: 'PENDING' },
+      data: {
+        paymentStatus: 'PAID',
+        paymentMethod: 'ONLINE',
+        razorpayPaymentId,
+      },
     });
 
-    await sendOrderSms(order.customerPhone, order.orderNo, order.store.name, order.total.toNumber());
-    return updated;
-  });
+    if (updated.count !== 1) {
+      const current = await tx.order.findUnique({ where: { id: order.id }, include: { store: true } });
+      if (current?.paymentStatus === 'PAID') return { order: current, shouldSendSms: false };
+      throw new Error('Order payment state changed and requires reconciliation.');
+    }
+
+    const paidOrder = await tx.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { store: true },
+    });
+    return { order: paidOrder, shouldSendSms: true };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+  // Never hold a database transaction open while calling the SMS provider.
+  if (result.shouldSendSms) {
+    await sendOrderSms(
+      result.order.customerPhone,
+      result.order.orderNo,
+      result.order.store.name,
+      result.order.total.toNumber()
+    );
+  }
+
+  return result.order;
 }
 
 export async function failOrder(orderIdOrRazorpayId: string) {
@@ -231,6 +285,16 @@ export async function failOrder(orderIdOrRazorpayId: string) {
     });
     if (!order || order.paymentStatus !== 'PENDING') return order;
 
+    // Move state first. Only the caller that wins PENDING -> FAILED is allowed
+    // to return inventory.
+    const transitioned = await tx.order.updateMany({
+      where: { id: order.id, paymentStatus: 'PENDING' },
+      data: { paymentStatus: 'FAILED' },
+    });
+    if (transitioned.count !== 1) {
+      return tx.order.findUnique({ where: { id: order.id } });
+    }
+
     for (const orderItem of order.items) {
       await tx.item.update({
         where: { id: orderItem.itemId },
@@ -238,20 +302,21 @@ export async function failOrder(orderIdOrRazorpayId: string) {
       });
     }
 
-    return tx.order.update({
-      where: { id: order.id },
-      data: { paymentStatus: 'FAILED' },
-    });
-  });
+    return tx.order.findUnique({ where: { id: order.id } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function expireOldPendingOrders() {
   const expiry = new Date(Date.now() - 15 * 60 * 1000);
   const orders = await prisma.order.findMany({
     where: { paymentStatus: 'PENDING', createdAt: { lt: expiry } },
+    select: { id: true, razorpayOrderId: true },
+    take: 100,
   });
 
   for (const order of orders) {
     await failOrder(order.razorpayOrderId || order.id);
   }
+
+  return orders.length;
 }

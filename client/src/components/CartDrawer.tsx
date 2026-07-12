@@ -20,7 +20,9 @@ export default function CartDrawer() {
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3">
-          {items.map((item) => (
+          {items.map((item) => {
+            const canIncrease = item.quantity < Math.min(item.maxStock ?? 20, 20);
+            return (
             <div key={item.id} className="flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900 truncate">{item.name}</div>
@@ -36,13 +38,15 @@ export default function CartDrawer() {
                 <span className="text-sm font-semibold w-4 text-center">{item.quantity}</span>
                 <button
                   onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                  className="w-6 h-6 flex items-center justify-center rounded bg-brand-50 text-brand-600 hover:bg-brand-100"
+                  disabled={!canIncrease}
+                  className="w-6 h-6 flex items-center justify-center rounded bg-brand-50 text-brand-600 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-2">

@@ -24,6 +24,8 @@ export interface CartItem {
   name: string;
   price: number;
   quantity: number;
+  /** Maximum quantity available when the item was added to the cart. */
+  maxStock?: number;
   category: string;
   imageUrl?: string;
   gstRate: number;
@@ -45,6 +47,8 @@ export interface Order {
   status: string;
   paymentStatus: string;
   paymentMethod?: 'ONLINE' | 'INSTORE';
+  /** Secret required to retrieve a customer-visible receipt/order status. */
+  customerAccessToken?: string;
   total: number;
   customerPhone: string;
   customerName?: string;

@@ -69,6 +69,7 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
   const [filter, setFilter] = useState('ALL');
   const [isOffline, setIsOffline] = useState(false);
   const [fromCache, setFromCache] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   // Cache
   const getMenuCache = useAdminCacheStore((s) => s.getMenuCache);
@@ -93,6 +94,7 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
     }
 
     setLoading(true);
+    setLoadError('');
     try {
       const [menuRes, catRes] = await Promise.all([
         api.get(`/admin/menu/${storeId}`),
@@ -109,7 +111,8 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
       });
       setFromCache(false);
       setIsOffline(false);
-    } catch {
+    } catch (err: any) {
+      setLoadError(err.response?.data?.error || 'Unable to load menu data.');
       if (cache) {
         setItems(cache.items);
         setIsOffline(true);
@@ -290,7 +293,13 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
         </div>
       </div>
 
-      {/* Form ... rest of component unchanged ... */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-300">
+          <span>{loadError}</span>
+          <button onClick={() => void fetchData(true)} className="text-xs font-semibold underline">Retry</button>
+        </div>
+      )}
+
       {showForm && (
         <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-4">
           <h3 className="text-sm font-semibold text-white">

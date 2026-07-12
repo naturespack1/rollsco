@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle, ShoppingBag, Phone, MapPin, Clock, Receipt, Printer, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/utils';
@@ -8,14 +8,21 @@ import { openCustomerBillPrint, downloadBillHtml } from '@/components/CustomerBi
 
 export default function OrderSuccess() {
   const { orderId } = useParams();
+  const [searchParams] = useSearchParams();
+  const accessToken = searchParams.get('token');
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [autoPrinted, setAutoPrinted] = useState(false);
 
   useEffect(() => {
-    if (!orderId) return;
-    api.get(`/orders/status/${orderId}`)
+    if (!orderId || !accessToken) {
+      setError('This receipt link is invalid or has expired.');
+      setLoading(false);
+      return;
+    }
+
+    api.get(`/orders/status/${orderId}`, { params: { token: accessToken } })
       .then((res) => {
         setOrder(res.data.data);
         // Auto print bill after 1.5s delay (allow page to render first)
@@ -36,7 +43,7 @@ export default function OrderSuccess() {
       })
       .catch(() => setError('Order not found'))
       .finally(() => setLoading(false));
-  }, [orderId]);
+  }, [orderId, accessToken]);
 
   const handlePrint = () => {
     if (!order?.store?.name) return;

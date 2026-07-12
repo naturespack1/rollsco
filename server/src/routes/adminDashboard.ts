@@ -88,6 +88,14 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     return true;
   };
 
+  const requireSuperAdmin = (request: any, reply: any) => {
+    if (request.admin.role !== 'SUPER_ADMIN') {
+      reply.status(403).send({ success: false, error: 'Only Super Admin can perform this action.' });
+      return false;
+    }
+    return true;
+  };
+
   // ─── Store status ───
 
   app.patch('/stores/:storeId/status', { preHandler: [authenticate] }, async (request, reply) => {
@@ -128,7 +136,8 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       body.customerPhone,
       body.customerName,
       body.customerMessage,
-      body.items as { id: string; quantity: number }[]
+      body.items as { id: string; quantity: number }[],
+      request.admin!.id
     );
 
     return reply.status(201).send({ success: true, data: order });
@@ -271,9 +280,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.post('/items', { preHandler: [authenticate] }, async (request, reply) => {
-    if (request.admin.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ success: false, error: 'Only Super Admin can add items.' });
-    }
+    if (!requireSuperAdmin(request, reply)) return;
     const body = createItemSchema.parse(request.body);
     if (!(await enforceStoreAccess(request, reply, body.storeId))) return;
 
@@ -296,6 +303,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.put('/items', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const body = updateItemSchema.parse(request.body);
     const existing = await prisma.item.findUnique({ where: { id: body.itemId }, include: { store: true } });
     if (!existing) return reply.status(404).send({ success: false, error: 'Item not found' });
@@ -310,6 +318,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.delete('/items/:itemId', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const { itemId } = request.params as { itemId: string };
     const item = await prisma.item.findUnique({ where: { id: itemId }, include: { store: true } });
     if (!item) return reply.status(404).send({ success: false, error: 'Item not found' });
@@ -319,7 +328,8 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  app.get('/categories', { preHandler: [authenticate] }, async () => {
+  app.get('/categories', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const categories = await prisma.category.findMany({ orderBy: { sort: 'asc' } });
     return { success: true, data: categories };
   });
@@ -327,9 +337,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   // ─── Admin Users (Super Admin only) ───
 
   app.get('/admins', { preHandler: [authenticate] }, async (request, reply) => {
-    if (request.admin.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ success: false, error: 'Only Super Admin can manage staff.' });
-    }
+    if (!requireSuperAdmin(request, reply)) return;
     const admins = await prisma.adminUser.findMany({
       include: { stores: { include: { store: { select: { id: true, name: true } } } } },
       orderBy: { createdAt: 'desc' },
@@ -338,9 +346,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.post('/admins', { preHandler: [authenticate] }, async (request, reply) => {
-    if (request.admin.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ success: false, error: 'Only Super Admin can add staff.' });
-    }
+    if (!requireSuperAdmin(request, reply)) return;
     const body = createAdminSchema.parse(request.body);
     const existing = await prisma.adminUser.findUnique({ where: { email: body.email } });
     if (existing) {
@@ -362,11 +368,9 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.delete('/admins/:adminId', { preHandler: [authenticate] }, async (request, reply) => {
-    if (request.admin.role !== 'SUPER_ADMIN') {
-      return reply.status(403).send({ success: false, error: 'Only Super Admin can remove staff.' });
-    }
+    if (!requireSuperAdmin(request, reply)) return;
     const { adminId } = request.params as { adminId: string };
-    if (adminId === request.admin.id) {
+    if (adminId === request.admin!.id) {
       return reply.status(400).send({ success: false, error: 'Cannot delete yourself.' });
     }
     await prisma.adminUser.delete({ where: { id: adminId } });
@@ -376,6 +380,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   // ─── Reports ───
 
   app.get('/bestsellers', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const query = request.query as any;
     const storeId = query.storeId as string;
     const days = parseInt(query.days || '30', 10);
@@ -403,6 +408,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.get('/payment-summary', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const query = request.query as any;
     const storeId = query.storeId as string;
     const requestedDays = parseInt(query.days || '30', 10);
@@ -450,6 +456,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
   });
 
   app.get('/export/daily', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
     const query = request.query as any;
     const storeId = query.storeId as string;
     const dateStr = query.date as string;

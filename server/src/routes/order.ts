@@ -1,27 +1,95 @@
 import { FastifyInstance } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { prisma } from '../prismaClient';
-import { createPendingOrder, markOrderPaid, failOrder } from '../services/orderService';
+import { checkoutAbuseGuard } from '../plugins/abuseProtection';
+import { createPendingOrder, markOrderPaid } from '../services/orderService';
+import { recordPaymentEvent } from '../services/paymentService';
 import { env } from '../config';
 
 const cartSchema = z.object({
   storeId: z.string().uuid(),
-  customerPhone: z.string().min(10).max(15),
-  customerName: z.string().optional(),
-  customerMessage: z.string().max(500).optional(),
+  customerPhone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number.'),
+  customerName: z.string().trim().min(1).max(100).optional(),
+  customerMessage: z.string().trim().max(500).optional(),
   items: z.array(
     z.object({
       id: z.string().uuid(),
       quantity: z.number().int().min(1).max(20),
     })
-  ).min(1),
+  ).min(1).max(30),
 });
 
+const idempotencyKeySchema = z.string().uuid();
+
+function buildCheckoutPayload(order: {
+  id: string;
+  orderNo: string;
+  customerAccessToken: string;
+  paymentStatus: string;
+  razorpayOrderId: string | null;
+  total: Prisma.Decimal;
+}) {
+  return {
+    orderId: order.id,
+    orderNo: order.orderNo,
+    accessToken: order.customerAccessToken,
+    paymentStatus: order.paymentStatus,
+    razorpayOrderId: order.razorpayOrderId,
+    amount: Math.round(order.total.toNumber() * 100),
+    keyId: env.RAZORPAY_KEY_ID,
+    currency: 'INR',
+  };
+}
+
+function cartMatchesOrder(
+  body: z.infer<typeof cartSchema>,
+  order: { storeId: string; customerPhone: string; items: { itemId: string; quantity: number }[] }
+) {
+  if (body.storeId !== order.storeId || body.customerPhone !== order.customerPhone) return false;
+
+  const requested = new Map<string, number>();
+  for (const item of body.items) requested.set(item.id, (requested.get(item.id) || 0) + item.quantity);
+  const stored = new Map(order.items.map((item) => [item.itemId, item.quantity]));
+
+  return requested.size === stored.size
+    && [...requested.entries()].every(([itemId, quantity]) => stored.get(itemId) === quantity);
+}
+
+async function findIdempotentOrder(idempotencyKey: string) {
+  return prisma.order.findUnique({
+    where: { idempotencyKey },
+    include: { items: { select: { itemId: true, quantity: true } } },
+  });
+}
+
 export default async function orderRoutes(app: FastifyInstance) {
-  // Customer creates order (server calculates price)
-  app.post('/create', async (request, reply) => {
+  app.post('/create', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    preHandler: [checkoutAbuseGuard],
+  }, async (request, reply) => {
     const body = cartSchema.parse(request.body);
+    const idempotencyHeader = request.headers['idempotency-key'];
+    const idempotencyKey = Array.isArray(idempotencyHeader) ? idempotencyHeader[0] : idempotencyHeader;
+    const parsedIdempotencyKey = idempotencyKeySchema.safeParse(idempotencyKey);
+    if (!parsedIdempotencyKey.success) {
+      return reply.status(400).send({ success: false, error: 'A valid Idempotency-Key header is required.' });
+    }
+
+    const existing = await findIdempotentOrder(parsedIdempotencyKey.data);
+    if (existing) {
+      if (!cartMatchesOrder(body, existing)) {
+        return reply.status(409).send({ success: false, error: 'Idempotency key was already used with a different order.' });
+      }
+      if (existing.paymentStatus === 'FAILED') {
+        return reply.status(409).send({ success: false, error: 'The previous payment attempt expired. Start a new checkout.' });
+      }
+      if (existing.paymentStatus === 'PENDING' && !existing.razorpayOrderId) {
+        return reply.status(409).send({ success: false, error: 'The previous checkout is still being created. Please retry shortly.' });
+      }
+      return reply.send({ success: true, data: buildCheckoutPayload(existing) });
+    }
 
     const store = await prisma.store.findUnique({ where: { id: body.storeId } });
     if (!store || !store.isOpen || !store.acceptingOrders) {
@@ -34,31 +102,39 @@ export default async function orderRoutes(app: FastifyInstance) {
         body.customerPhone,
         body.customerName,
         body.customerMessage,
-        body.items as { id: string; quantity: number }[]
+        body.items as { id: string; quantity: number }[],
+        parsedIdempotencyKey.data
       );
 
-      return reply.send({
-        success: true,
-        data: {
-          orderId: result.order.id,
-          orderNo: result.order.orderNo,
-          razorpayOrderId: result.razorpayOrderId,
-          amount: result.amount,
-          keyId: env.RAZORPAY_KEY_ID,
-          currency: 'INR',
-        },
-      });
-    } catch (err: any) {
-      app.log.error(err);
-      return reply.status(400).send({ success: false, error: err.message || 'Order creation failed.' });
+      return reply.status(201).send({ success: true, data: buildCheckoutPayload({
+        ...result.order,
+        razorpayOrderId: result.razorpayOrderId,
+      }) });
+    } catch (error: any) {
+      // A duplicated request can race before the first transaction commits.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const racedOrder = await findIdempotentOrder(parsedIdempotencyKey.data);
+        if (racedOrder && cartMatchesOrder(body, racedOrder) && racedOrder.razorpayOrderId) {
+          return reply.send({ success: true, data: buildCheckoutPayload(racedOrder) });
+        }
+      }
+
+      app.log.error(error, 'Order creation failed');
+      const message = error instanceof Error && /out of stock|unavailable|maximum|changed while/i.test(error.message)
+        ? error.message
+        : 'Order creation failed. Please try again.';
+      return reply.status(400).send({ success: false, error: message });
     }
   });
 
-  // Verify payment status (client polls after payment attempt)
+  // Customer-visible order state requires both the order UUID and the separate
+  // high-entropy access token returned only to the checkout client.
   app.get('/status/:orderId', async (request, reply) => {
-    const { orderId } = request.params as { orderId: string };
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
+    const params = z.object({ orderId: z.string().uuid() }).parse(request.params);
+    const query = z.object({ token: z.string().uuid() }).parse(request.query);
+
+    const order = await prisma.order.findFirst({
+      where: { id: params.orderId, customerAccessToken: query.token },
       include: {
         store: { select: { name: true, address: true } },
         items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } },
@@ -68,50 +144,54 @@ export default async function orderRoutes(app: FastifyInstance) {
     return { success: true, data: order };
   });
 
-  // Public order details by orderNo (for receipt page)
-  app.get('/receipt/:orderNo', async (request, reply) => {
-    const { orderNo } = request.params as { orderNo: string };
-    const order = await prisma.order.findUnique({
-      where: { orderNo },
-      include: {
-        store: { select: { name: true, address: true } },
-        items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } },
-      },
-    });
-    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' });
-    return { success: true, data: order };
-  });
-
-  // Client-side payment verification (replaces webhook for development)
-  app.post('/verify', async (request, reply) => {
+  app.post('/verify', {
+    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const verifySchema = z.object({
       orderId: z.string().uuid(),
-      razorpayPaymentId: z.string().min(1),
-      razorpayOrderId: z.string().min(1),
-      razorpaySignature: z.string().min(1),
+      razorpayPaymentId: z.string().min(1).max(100),
+      razorpayOrderId: z.string().min(1).max(100),
+      razorpaySignature: z.string().regex(/^[a-f0-9]{64}$/i),
     });
     const body = verifySchema.parse(request.body);
 
     if (!env.RAZORPAY_KEY_SECRET) {
-      return reply.status(500).send({ success: false, error: 'Payment verification not configured' });
+      return reply.status(503).send({ success: false, error: 'Payment verification is not configured.' });
     }
 
-    // Verify Razorpay signature: HMAC-SHA256(order_id + "|" + payment_id, key_secret)
     const expected = crypto
       .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
       .update(`${body.razorpayOrderId}|${body.razorpayPaymentId}`)
       .digest('hex');
 
-    if (expected !== body.razorpaySignature) {
-      return reply.status(400).send({ success: false, error: 'Invalid payment signature' });
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    const receivedBuffer = Buffer.from(body.razorpaySignature, 'hex');
+    if (receivedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+      return reply.status(400).send({ success: false, error: 'Invalid payment signature.' });
+    }
+
+    const pendingOrder = await prisma.order.findUnique({ where: { id: body.orderId } });
+    if (!pendingOrder || pendingOrder.razorpayOrderId !== body.razorpayOrderId) {
+      return reply.status(400).send({ success: false, error: 'Payment does not match this order.' });
     }
 
     try {
       const order = await markOrderPaid(body.razorpayOrderId, body.razorpayPaymentId);
+      await recordPaymentEvent({
+        dedupeKey: `client-verification:${body.razorpayPaymentId}`,
+        eventType: 'client.payment_verified',
+        razorpayOrderId: body.razorpayOrderId,
+        razorpayPaymentId: body.razorpayPaymentId,
+        orderId: order.id,
+        payload: body,
+      });
       return { success: true, data: order };
-    } catch (err: any) {
-      app.log.error(err);
-      return reply.status(400).send({ success: false, error: err.message || 'Payment verification failed' });
+    } catch (error) {
+      app.log.error(error, 'Payment verification failed');
+      return reply.status(409).send({
+        success: false,
+        error: 'Payment could not be applied automatically. Please contact support if funds were deducted.',
+      });
     }
   });
 }

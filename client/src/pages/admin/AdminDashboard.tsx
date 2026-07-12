@@ -52,18 +52,29 @@ export default function AdminDashboard() {
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadingStores, setLoadingStores] = useState(true);
+  const [storesError, setStoresError] = useState('');
 
   const isSuperAdmin = admin?.role === 'SUPER_ADMIN';
   const tabs = isSuperAdmin ? [...managerTabs, ...superAdminTabs] : managerTabs;
 
-  useEffect(() => {
-    api.get('/stores').then((res) => {
+  const loadStores = async () => {
+    setLoadingStores(true);
+    setStoresError('');
+    try {
+      const res = await api.get('/stores');
       const all = res.data.data || [];
       setStores(all);
       const allowed = all.filter((s: StoreType) => admin?.role === 'SUPER_ADMIN' || admin?.storeIds.includes(s.id));
-      setSelectedStoreId(allowed[0]?.id || all[0]?.id || '');
+      setSelectedStoreId(allowed[0]?.id || '');
+    } catch (error: any) {
+      setStoresError(error.response?.data?.error || 'Unable to load assigned stores.');
+    } finally {
       setLoadingStores(false);
-    });
+    }
+  };
+
+  useEffect(() => {
+    void loadStores();
   }, [admin]);
 
   const handleLogout = () => {
@@ -90,6 +101,19 @@ export default function AdminDashboard() {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600" />
+      </div>
+    );
+  }
+
+  if (storesError) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="text-sm text-red-300">{storesError}</p>
+          <button onClick={() => void loadStores()} className="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

@@ -23,6 +23,7 @@ export default function MenuItemCard({ item }: MenuItemCardProps) {
       name: item.name,
       price: item.price,
       quantity: 1,
+      maxStock: item.stock,
       category: item.category,
       imageUrl: item.imageUrl,
       gstRate: item.gstRate,

@@ -202,14 +202,20 @@ export const useAdminCacheStore = create<AdminCacheState>()(
     }),
     {
       name: 'rolls-admin-cache',
+      // Do not persist order data: it contains customer phone numbers, names,
+      // messages, and payment/order details on a shared admin device.
       partialize: (state) => ({
-        ordersCache: state.ordersCache,
         menuCache: state.menuCache,
         bestsellersCache: state.bestsellersCache,
         autoSyncInterval: state.autoSyncInterval,
         lastSync: state.lastSync,
         pendingOrderUpdates: state.pendingOrderUpdates,
       }),
+      version: 2,
+      migrate: (persistedState: any, version) => {
+        if (version < 2) return { ...persistedState, ordersCache: null };
+        return persistedState;
+      },
     }
   )
 );

@@ -41,28 +41,32 @@ export default function AdminStaff() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const fetchAdmins = async () => {
-    try {
-      const res = await api.get('/admin/admins');
-      setAdmins(res.data.data || []);
-    } catch {
-      // ignore
-    }
+    const res = await api.get('/admin/admins');
+    setAdmins(res.data.data || []);
   };
 
   const fetchStores = async () => {
+    const res = await api.get('/stores');
+    setStores(res.data.data || []);
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    setLoadError('');
     try {
-      const res = await api.get('/stores');
-      setStores(res.data.data || []);
-    } catch {
-      // ignore
+      await Promise.all([fetchAdmins(), fetchStores()]);
+    } catch (err: any) {
+      setLoadError(err.response?.data?.error || 'Unable to load staff data.');
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchAdmins(), fetchStores()]).finally(() => setLoading(false));
+    void loadData();
   }, []);
 
   const handleSubmit = async () => {
@@ -123,6 +127,13 @@ export default function AdminStaff() {
           {showForm ? 'Cancel' : 'Add Staff'}
         </button>
       </div>
+
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-300">
+          <span>{loadError}</span>
+          <button onClick={() => void loadData()} className="text-xs font-semibold underline">Retry</button>
+        </div>
+      )}
 
       {showForm && (
         <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-4">

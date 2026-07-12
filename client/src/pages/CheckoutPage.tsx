@@ -14,6 +14,7 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
+  const getOrCreateCheckoutIdempotencyKey = useCartStore((s) => s.getOrCreateCheckoutIdempotencyKey);
   const totals = useCartStore((s) => s.getTotals());
   const selectedStore = useStoreStore((s) => s.selectedStore);
   const clearStore = useStoreStore((s) => s.clearStore);
@@ -32,15 +33,31 @@ export default function CheckoutPage() {
     setError('');
 
     try {
+      const idempotencyKey = getOrCreateCheckoutIdempotencyKey();
       const res = await api.post('/orders/create', {
         storeId: selectedStore!.id,
         customerPhone: formatPhone(phone),
         customerName: name || undefined,
         customerMessage: message || undefined,
         items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
+      }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
       });
 
-      const { razorpayOrderId, amount, keyId, orderId } = res.data.data;
+      const { razorpayOrderId, amount, keyId, orderId, accessToken, paymentStatus } = res.data.data;
+
+      // A retry can return an order that was already paid after a prior network
+      // failure. Complete the customer flow without opening Razorpay again.
+      if (paymentStatus === 'PAID') {
+        const statusRes = await api.get(`/orders/status/${orderId}`, { params: { token: accessToken } });
+        const order = statusRes.data.data;
+        clearCart();
+        useCustomerOrdersStore.getState().addOrder(order);
+        if (order.store?.name) downloadBillHtml(order, order.store.name, order.store.address || '');
+        clearStore();
+        navigate('/');
+        return;
+      }
 
       await openRazorpayCheckout({
         orderId: razorpayOrderId,
@@ -52,7 +69,7 @@ export default function CheckoutPage() {
         onSuccess: async (response) => {
           try {
             // Poll for status until PAID (webhook may have already processed)
-            let statusRes = await api.get(`/orders/status/${orderId}`);
+            let statusRes = await api.get(`/orders/status/${orderId}`, { params: { token: accessToken } });
             if (statusRes.data.data?.paymentStatus !== 'PAID') {
               // Fallback: direct server verification if webhook hasn't arrived yet
               await api.post('/orders/verify', {
@@ -61,7 +78,7 @@ export default function CheckoutPage() {
                 razorpayOrderId: response.razorpay_order_id,
                 razorpaySignature: response.razorpay_signature,
               });
-              statusRes = await api.get(`/orders/status/${orderId}`);
+              statusRes = await api.get(`/orders/status/${orderId}`, { params: { token: accessToken } });
             }
 
             const order = statusRes.data.data;
@@ -97,7 +114,7 @@ export default function CheckoutPage() {
           // User closed Razorpay modal. Check if payment actually succeeded via webhook or polling.
           setTimeout(async () => {
             try {
-              const statusRes = await api.get(`/orders/status/${orderId}`);
+              const statusRes = await api.get(`/orders/status/${orderId}`, { params: { token: accessToken } });
               const order = statusRes.data.data;
               if (order?.paymentStatus === 'PAID') {
                 clearCart();
@@ -143,10 +160,6 @@ export default function CheckoutPage() {
           ))}
         </div>
         <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-          <div className="flex justify-between text-sm text-gray-600">
-            <span>Subtotal</span>
-            <span>{formatPrice(totals.subtotal)}</span>
-          </div>
           <div className="flex justify-between text-sm text-gray-600">
             <span>Subtotal (excl. tax)</span>
             <span>{formatPrice(totals.subtotal)}</span>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStoreStore } from '@/store/useStoreStore';
 import { useCartStore } from '@/store/useCartStore';
 import { api } from '@/lib/api';
@@ -14,8 +15,11 @@ interface MenuCategory {
 }
 
 export default function MenuPage() {
+  const navigate = useNavigate();
   const selectedStore = useStoreStore((s) => s.selectedStore);
+  const clearStore = useStoreStore((s) => s.clearStore);
   const setStoreId = useCartStore((s) => s.setStoreId);
+  const clearCart = useCartStore((s) => s.clearCart);
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [activeCategory, setActiveCategory] = useState('');
   const [loading, setLoading] = useState(true);
@@ -25,15 +29,24 @@ export default function MenuPage() {
     if (!selectedStore) return;
     setStoreId(selectedStore.id);
     setLoading(true);
+    setError('');
     api.get(`/menu/${selectedStore.id}`)
       .then((res) => {
+        const liveStore = res.data.data?.store as Store | undefined;
+        if (!liveStore || !liveStore.isOpen || !liveStore.acceptingOrders) {
+          clearCart();
+          clearStore();
+          navigate('/', { replace: true });
+          return;
+        }
+
         const data = res.data.data?.menu || [];
         setMenu(data);
         if (data.length > 0) setActiveCategory(data[0].category);
       })
       .catch(() => setError('Failed to load menu'))
       .finally(() => setLoading(false));
-  }, [selectedStore]);
+  }, [selectedStore, setStoreId, clearCart, clearStore, navigate]);
 
   const activeItems = useMemo(() => {
     return menu.find((m) => m.category === activeCategory)?.items || [];

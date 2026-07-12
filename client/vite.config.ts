@@ -17,12 +17,6 @@ export default defineConfig({
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
             options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
-          },
-          {
-            // Match both relative /api/... and absolute https://rollsco-server.vercel.app/api/...
-            urlPattern: /\/api\/(menu|stores)/i,
-            handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'api-menu-cache', expiration: { maxEntries: 20, maxAgeSeconds: 60 * 5 } }
           }
         ]
       }
@@ -39,7 +33,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {

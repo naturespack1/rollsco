@@ -63,8 +63,9 @@ export default function StoreSelector() {
     downloadBillHtml(lastOrder, lastOrder.store.name, lastOrder.store.address || '');
   };
 
-  const handleViewReceipt = (orderId: string) => {
-    navigate(`/success/${orderId}`);
+  const handleViewReceipt = (orderId: string, accessToken?: string) => {
+    if (!accessToken) return;
+    navigate(`/success/${orderId}?token=${encodeURIComponent(accessToken)}`);
   };
 
   const handleDownloadOrderBill = (order: any) => {
@@ -108,7 +109,7 @@ export default function StoreSelector() {
                   Download Bill
                 </button>
                 <button
-                  onClick={() => lastOrder && handleViewReceipt(lastOrder.id)}
+                  onClick={() => lastOrder && handleViewReceipt(lastOrder.id, lastOrder.customerAccessToken)}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white border border-green-200 text-green-700 text-xs font-semibold hover:bg-green-50 transition"
                 >
                   <Receipt className="w-3.5 h-3.5" />
@@ -266,7 +267,7 @@ export default function StoreSelector() {
                       Bill
                     </button>
                     <button
-                      onClick={() => handleViewReceipt(order.id)}
+                      onClick={() => handleViewReceipt(order.id, order.customerAccessToken)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition"
                     >
                       <Receipt className="w-3.5 h-3.5" />

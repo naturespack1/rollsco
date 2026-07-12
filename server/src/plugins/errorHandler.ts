@@ -1,9 +1,18 @@
 import { FastifyInstance, FastifyError } from 'fastify';
 import { Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
 
 export async function errorHandler(app: FastifyInstance) {
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error(error);
+
+    if (error instanceof ZodError) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Invalid request data.',
+        details: error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+      });
+    }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
@@ -15,10 +24,10 @@ export async function errorHandler(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Database error.' });
     }
 
-    if (error.statusCode) {
+    if (error.statusCode && error.statusCode < 500) {
       return reply.status(error.statusCode).send({
         success: false,
-        error: error.message || 'An error occurred.',
+        error: error.message || 'Invalid request.',
       });
     }
 

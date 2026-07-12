@@ -24,7 +24,6 @@ export default function AdminLogin() {
     try {
       const res = await api.post('/admin/auth/login', { email, password });
       const { token, admin } = res.data.data;
-      localStorage.setItem('admin_token', token);
       setAuth(token, admin);
       navigate(from, { replace: true });
     } catch (err: any) {
