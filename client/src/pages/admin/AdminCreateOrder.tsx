@@ -16,7 +16,20 @@ import { api } from '@/lib/api';
 import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import { cn, formatPhone, formatPrice } from '@/lib/utils';
 
-const ADMIN_SCROLL_OFFSET = 80; // header (56px) + small gap
+const ADMIN_SCROLL_OFFSET = 80; // sticky category bar + small gap
+
+function getScrollableAncestor(element: HTMLElement | null): HTMLElement | null {
+  let parent = element?.parentElement || null;
+
+  while (parent && parent !== document.body) {
+    const style = window.getComputedStyle(parent);
+    const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY);
+    if (canScrollY && parent.scrollHeight > parent.clientHeight) return parent;
+    parent = parent.parentElement;
+  }
+
+  return null;
+}
 
 interface AdminMenuItem {
   id: string;
@@ -101,11 +114,14 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
     return groups;
   }, [menuItems, categories]);
 
-  // Track which section is visible via IntersectionObserver
+  // Track which section is visible via IntersectionObserver. The admin dashboard
+  // scrolls inside its own <main> container on desktop, so use that container as
+  // the observer root when present instead of assuming the window is scrolling.
   useEffect(() => {
     if (loadingMenu || categories.length === 0) return;
 
     const observers: IntersectionObserver[] = [];
+    const scrollRoot = getScrollableAncestor(sectionRefs.current[categories[0]]);
 
     const handleIntersect = (entries: IntersectionObserverEntry[]) => {
       if (isScrolling.current) return;
@@ -121,6 +137,7 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
       const el = sectionRefs.current[cat];
       if (!el) return;
       const observer = new IntersectionObserver(handleIntersect, {
+        root: scrollRoot,
         rootMargin: `-${ADMIN_SCROLL_OFFSET}px 0px -60% 0px`,
         threshold: 0,
       });
@@ -134,11 +151,21 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
   const scrollToCategory = useCallback((category: string) => {
     const el = sectionRefs.current[category];
     if (!el) return;
+
     setActiveCategory(category);
     isScrolling.current = true;
-    const top = el.getBoundingClientRect().top + window.scrollY - ADMIN_SCROLL_OFFSET;
-    window.scrollTo({ top, behavior: 'smooth' });
-    setTimeout(() => { isScrolling.current = false; }, 600);
+
+    const scrollRoot = getScrollableAncestor(el);
+    if (scrollRoot) {
+      const rootRect = scrollRoot.getBoundingClientRect();
+      const targetTop = el.getBoundingClientRect().top - rootRect.top + scrollRoot.scrollTop - ADMIN_SCROLL_OFFSET;
+      scrollRoot.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    } else {
+      const top = el.getBoundingClientRect().top + window.scrollY - ADMIN_SCROLL_OFFSET;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+
+    setTimeout(() => { isScrolling.current = false; }, 700);
   }, []);
 
   const totals = useMemo(() => {
@@ -260,7 +287,7 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
 
       <form onSubmit={handlePlaceOrder} className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="min-w-0 rounded-xl border border-gray-800 bg-gray-900/60">
-          <div className="border-b border-gray-800 p-4">
+          <div className="sticky top-0 z-20 rounded-t-xl border-b border-gray-800 bg-gray-900/95 p-4 backdrop-blur">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               <Package className="h-4 w-4 text-brand-400" /> Select items
             </div>
