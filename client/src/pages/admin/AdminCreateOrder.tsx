@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -15,6 +15,8 @@ import {
 import { api } from '@/lib/api';
 import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import { cn, formatPhone, formatPrice } from '@/lib/utils';
+
+const ADMIN_SCROLL_OFFSET = 80; // header (56px) + small gap
 
 interface AdminMenuItem {
   id: string;
@@ -53,6 +55,8 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [createdOrder, setCreatedOrder] = useState<CreatedInstoreOrder | null>(null);
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const isScrolling = useRef(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -88,7 +92,54 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
     () => Array.from(new Set(menuItems.map((item) => item.categoryName))),
     [menuItems]
   );
-  const visibleItems = menuItems.filter((item) => item.categoryName === activeCategory);
+
+  const itemsByCategory = useMemo(() => {
+    const groups: Record<string, AdminMenuItem[]> = {};
+    categories.forEach((cat) => {
+      groups[cat] = menuItems.filter((item) => item.categoryName === cat);
+    });
+    return groups;
+  }, [menuItems, categories]);
+
+  // Track which section is visible via IntersectionObserver
+  useEffect(() => {
+    if (loadingMenu || categories.length === 0) return;
+
+    const observers: IntersectionObserver[] = [];
+
+    const handleIntersect = (entries: IntersectionObserverEntry[]) => {
+      if (isScrolling.current) return;
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          setActiveCategory(entry.target.getAttribute('data-category') || '');
+          break;
+        }
+      }
+    };
+
+    categories.forEach((cat) => {
+      const el = sectionRefs.current[cat];
+      if (!el) return;
+      const observer = new IntersectionObserver(handleIntersect, {
+        rootMargin: `-${ADMIN_SCROLL_OFFSET}px 0px -60% 0px`,
+        threshold: 0,
+      });
+      observer.observe(el);
+      observers.push(observer);
+    });
+
+    return () => observers.forEach((o) => o.disconnect());
+  }, [loadingMenu, categories]);
+
+  const scrollToCategory = useCallback((category: string) => {
+    const el = sectionRefs.current[category];
+    if (!el) return;
+    setActiveCategory(category);
+    isScrolling.current = true;
+    const top = el.getBoundingClientRect().top + window.scrollY - ADMIN_SCROLL_OFFSET;
+    window.scrollTo({ top, behavior: 'smooth' });
+    setTimeout(() => { isScrolling.current = false; }, 600);
+  }, []);
 
   const totals = useMemo(() => {
     return cart.reduce((result, item) => {
@@ -218,7 +269,7 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
                 <button
                   key={category}
                   type="button"
-                  onClick={() => setActiveCategory(category)}
+                  onClick={() => scrollToCategory(category)}
                   className={cn(
                     'whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition',
                     activeCategory === category
@@ -236,61 +287,75 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
             <div className="flex justify-center py-16">
               <LoaderCircle className="h-7 w-7 animate-spin text-brand-400" />
             </div>
-          ) : visibleItems.length === 0 ? (
-            <div className="p-10 text-center text-sm text-gray-500">No available items in this category.</div>
+          ) : categories.length === 0 ? (
+            <div className="p-10 text-center text-sm text-gray-500">No available items.</div>
           ) : (
-            <div className="grid gap-3 p-4 sm:grid-cols-2">
-              {visibleItems.map((item) => {
-                const quantity = getCartQuantity(item.id);
-                const canAdd = quantity < item.stock;
-                return (
-                  <article key={item.id} className={cn('rounded-lg border border-gray-800 bg-black/30 p-3', item.stock === 0 && 'opacity-60')}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-white">{item.name}</h3>
-                        {item.description && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{item.description}</p>}
-                      </div>
-                      <span className="shrink-0 text-sm font-bold text-white">{formatPrice(item.price)}</span>
-                    </div>
-                    <div className="mt-3 flex items-end justify-between gap-3">
-                      <span className={cn('text-[11px]', item.stock > 0 ? 'text-gray-500' : 'text-red-400')}>
-                        {item.stock > 0 ? `${item.stock} in stock` : 'Out of stock'}
-                      </span>
-                      {quantity > 0 ? (
-                        <div className="flex items-center gap-2 rounded-lg bg-gray-800 p-1">
-                          <button
-                            type="button"
-                            onClick={() => updateQuantity(item, quantity - 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-700 text-gray-100 hover:bg-gray-600"
-                            aria-label={`Remove one ${item.name}`}
-                          >
-                            <Minus className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="w-4 text-center text-sm font-semibold text-white">{quantity}</span>
-                          <button
-                            type="button"
-                            disabled={!canAdd}
-                            onClick={() => updateQuantity(item, quantity + 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label={`Add one ${item.name}`}
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={!canAdd}
-                          onClick={() => updateQuantity(item, 1)}
-                          className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> Add
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
+            <div className="p-4 space-y-8">
+              {categories.map((category) => (
+                <section
+                  key={category}
+                  data-category={category}
+                  ref={(el) => { sectionRefs.current[category] = el; }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-white">{category}</h3>
+                    <span className="text-[11px] text-gray-500">{itemsByCategory[category]?.length || 0} items</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(itemsByCategory[category] || []).map((item) => {
+                      const quantity = getCartQuantity(item.id);
+                      const canAdd = quantity < item.stock;
+                      return (
+                        <article key={item.id} className={cn('rounded-lg border border-gray-800 bg-black/30 p-3', item.stock === 0 && 'opacity-60')}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <h3 className="truncate text-sm font-semibold text-white">{item.name}</h3>
+                              {item.description && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{item.description}</p>}
+                            </div>
+                            <span className="shrink-0 text-sm font-bold text-white">{formatPrice(item.price)}</span>
+                          </div>
+                          <div className="mt-3 flex items-end justify-between gap-3">
+                            <span className={cn('text-[11px]', item.stock > 0 ? 'text-gray-500' : 'text-red-400')}>
+                              {item.stock > 0 ? `${item.stock} in stock` : 'Out of stock'}
+                            </span>
+                            {quantity > 0 ? (
+                              <div className="flex items-center gap-2 rounded-lg bg-gray-800 p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateQuantity(item, quantity - 1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-700 text-gray-100 hover:bg-gray-600"
+                                  aria-label={`Remove one ${item.name}`}
+                                >
+                                  <Minus className="h-3.5 w-3.5" />
+                                </button>
+                                <span className="w-4 text-center text-sm font-semibold text-white">{quantity}</span>
+                                <button
+                                  type="button"
+                                  disabled={!canAdd}
+                                  onClick={() => updateQuantity(item, quantity + 1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                  aria-label={`Add one ${item.name}`}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canAdd}
+                                onClick={() => updateQuantity(item, 1)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+                              >
+                                <Plus className="h-3.5 w-3.5" /> Add
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </section>
