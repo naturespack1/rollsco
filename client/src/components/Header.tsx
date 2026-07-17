@@ -39,16 +39,9 @@ export default function Header() {
             }}
           >
             <ChefHat className={cn('w-6 h-6', isAdmin ? 'text-brand-400' : 'text-brand-600')} />
-            <div className="flex flex-col leading-none">
-              <span className={cn('font-black text-[18px] tracking-tight', isAdmin ? 'text-white' : 'text-gray-900')}>
-                ROLLS & CO.
-              </span>
-              {!isAdmin && (
-                <span className="hidden md:block text-[8.5px] font-black tracking-[0.18em] uppercase text-brand-600 -mt-0.5">
-                  No Empty Bites. Only Loaded Rolls.
-                </span>
-              )}
-            </div>
+            <span className={cn('font-bold text-lg tracking-tight', isAdmin ? 'text-white' : 'text-gray-900')}>
+              Rolls & Co.
+            </span>
           </div>
         </div>
 

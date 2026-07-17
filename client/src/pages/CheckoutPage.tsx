@@ -145,17 +145,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="max-w-xl mx-auto px-4 py-6 pb-28 lg:pb-8">
-      {/* Tagline header */}
-      <div className="rounded-2xl bg-black text-white p-4 mb-4 flex items-start justify-between">
-        <div>
-          <div className="text-[10px] font-black tracking-[0.2em] uppercase text-accent-400">Secure Checkout • Brand Promise</div>
-          <h1 className="font-black text-lg uppercase tracking-tight leading-tight mt-1">No Empty Bites.<br/><span className="text-brand-400">Only Loaded Rolls.</span></h1>
-          <p className="text-[11px] text-white/60 mt-1 font-medium">We Don't Roll Small • Every roll extremely loaded</p>
-        </div>
-        <div className="text-2xl">⚡</div>
-      </div>
-
-      <h2 className="text-[12px] font-black tracking-[0.2em] uppercase text-gray-500 mb-3">Checkout</h2>
+      <h1 className="text-xl font-bold text-gray-900 mb-4">Checkout</h1>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
         <h3 className="font-semibold text-gray-900 mb-3">Order Summary</h3>
@@ -252,24 +242,13 @@ export default function CheckoutPage() {
         onClick={handleCheckout}
         disabled={!canCheckout}
         className={cn(
-          'w-full py-3.5 rounded-2xl font-black uppercase tracking-wide text-white flex items-center justify-center gap-2 transition shadow-lg text-sm',
+          'w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition shadow-lg',
           canCheckout ? 'bg-brand-600 hover:bg-brand-700' : 'bg-gray-300 cursor-not-allowed'
         )}
       >
         <ShieldCheck className="w-5 h-5" />
-        {loading ? 'Processing...' : `Pay ${formatPrice(totals.total)} • Wrap. Bite. Repeat.`}
+        {loading ? 'Processing...' : `Pay ${formatPrice(totals.total)}`}
       </button>
-
-      {/* Loyalty footer */}
-      <div className="mt-6 rounded-2xl bg-accent-500 p-4 text-center">
-        <div className="text-[10px] font-black tracking-[0.2em] uppercase text-black/60">Loyalty Habit</div>
-        <div className="font-black text-lg uppercase tracking-tight text-black mt-1">Wrap. Bite. Repeat. 🔄</div>
-        <div className="text-xs font-medium text-black/70 mt-1">Rolls So Big, You Need Two Hands • We Don't Roll Small</div>
-      </div>
-
-      <div className="mt-4 text-center">
-        <p className="text-[10px] font-bold tracking-widest uppercase text-gray-400">⚡ Warning: Extremely Loaded • No Empty Bites. Only Loaded Rolls.</p>
-      </div>
     </div>
   );
 }

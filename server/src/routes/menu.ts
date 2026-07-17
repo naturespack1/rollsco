@@ -36,7 +36,6 @@ export default async function menuRoutes(app: FastifyInstance) {
         })),
     }));
 
-    // Server-side ordering too: Most loved categories first, then by original sort
     const menuMap = menuMapRaw
       .filter((m) => m.items.length > 0)
       .sort((a, b) => {

@@ -13,15 +13,10 @@ export default function CartDrawer() {
 
   return (
     <div className="hidden lg:block w-80 shrink-0">
-      <div className="sticky top-[88px] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="sticky top-28 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-100">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-black tracking-tight text-gray-900 uppercase text-sm">Your Cart</h3>
-              <p className="text-[11px] font-bold tracking-widest uppercase text-brand-600 mt-0.5">{items.reduce((s, i) => s + i.quantity, 0)} items • We Don't Roll Small</p>
-            </div>
-            <span className="text-[8px] font-black tracking-widest uppercase bg-black text-white px-2 py-1 rounded-full">Extremely Loaded</span>
-          </div>
+          <h3 className="font-bold text-gray-900">Your Cart</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{items.reduce((s, i) => s + i.quantity, 0)} items</p>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3">
@@ -34,11 +29,18 @@ export default function CartDrawer() {
                 <div className="text-xs text-gray-500">{item.category} · {formatPrice(item.price)} × {item.quantity}</div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-6 h-6 flex items-center justify-center rounded bg-gray-100 text-gray-600 hover:bg-gray-200">
+                <button
+                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                  className="w-6 h-6 flex items-center justify-center rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                >
                   <Minus className="w-3 h-3" />
                 </button>
                 <span className="text-sm font-semibold w-4 text-center">{item.quantity}</span>
-                <button onClick={() => updateQuantity(item.id, item.quantity + 1)} disabled={!canIncrease} className="w-6 h-6 flex items-center justify-center rounded bg-brand-50 text-brand-600 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-40">
+                <button
+                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                  disabled={!canIncrease}
+                  className="w-6 h-6 flex items-center justify-center rounded bg-brand-50 text-brand-600 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
@@ -48,22 +50,28 @@ export default function CartDrawer() {
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-2">
-          <div className="rounded-xl bg-black text-white p-3 mb-1 flex items-center justify-between">
-            <div>
-              <div className="text-[9px] font-black tracking-[0.2em] uppercase text-accent-400">Brand Promise</div>
-              <div className="font-black text-xs uppercase跟踪-tight">No Empty Bites. Only Loaded Rolls.</div>
-            </div>
-            <div className="text-lg">🔥</div>
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>Subtotal (excl. tax)</span>
+            <span>{formatPrice(totals.subtotal)}</span>
           </div>
-
-          <div className="flex justify-between text-sm text-gray-600"><span>Subtotal (excl. tax)</span><span>{formatPrice(totals.subtotal)}</span></div>
-          <div className="flex justify-between text-sm text-gray-600"><span>CGST</span><span>{formatPrice(totals.cgst)}</span></div>
-          <div className="flex justify-between text-sm text-gray-600"><span>SGST</span><span>{formatPrice(totals.sgst)}</span></div>
-          <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200"><span>Total (incl. GST)</span><span>{formatPrice(totals.total)}</span></div>
-          <button onClick={() => navigate('/checkout')} className="w-full mt-2 py-3 rounded-xl bg-brand-600 text-white font-black text-sm uppercase tracking-wide hover:bg-brand-700 transition flex items-center justify-center gap-2">
-            Wrap. Bite. Repeat. <ArrowRight className="w-4 h-4" />
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>CGST</span>
+            <span>{formatPrice(totals.cgst)}</span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>SGST</span>
+            <span>{formatPrice(totals.sgst)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200">
+            <span>Total (incl. GST)</span>
+            <span>{formatPrice(totals.total)}</span>
+          </div>
+          <button
+            onClick={() => navigate('/checkout')}
+            className="w-full mt-2 py-2.5 rounded-lg bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 transition flex items-center justify-center gap-2"
+          >
+            Checkout <ArrowRight className="w-4 h-4" />
           </button>
-          <p className="text-[10px] text-center font-bold tracking-widest uppercase text-gray-400">Rolls So Big, You Need Two Hands 🙌</p>
         </div>
       </div>
     </div>

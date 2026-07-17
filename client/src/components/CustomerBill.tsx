@@ -98,12 +98,8 @@ ${items.map(item => {
   <span>TOTAL (incl. GST)</span>
   <span>${totalNum.toFixed(2)}</span>
 </div>
-<div class="border-dashed"></div>
 <div class="footer">
-  <div class="small bold" style="letter-spacing:1px;">NO EMPTY BITES. ONLY LOADED ROLLS.</div>
-  <div class="tiny" style="margin-top:2px;">We Don't Roll Small • ⚡ WARNING: EXTREMELY LOADED</div>
-  <div class="tiny bold" style="margin-top:6px; font-size:12px;">WRAP. BITE. REPEAT. 🔄</div>
-  <div class="tiny" style="margin-top:6px;">Thank you! Visit again. Rolls So Big, You Need Two Hands 🙌</div>
+  <div class="tiny">Thank you! Visit again.</div>
 </div>
 </body>
 </html>`;
@@ -178,13 +174,7 @@ ${items.map(item => {
 <div class="gst-row"><span>SGST</span><span>${sgstNum.toFixed(2)}</span></div>
 <div class="border-double"></div>
 <div class="flex bold large"><span>TOTAL (incl. GST)</span><span>${totalNum.toFixed(2)}</span></div>
-<div class="border-dashed"></div>
-<div class="footer">
-  <div class="small bold" style="letter-spacing:1px;">NO EMPTY BITES. ONLY LOADED ROLLS.</div>
-  <div class="tiny" style="margin-top:2px;">We Don't Roll Small • ⚡ WARNING: EXTREMELY LOADED</div>
-  <div class="tiny bold" style="margin-top:6px; font-size:12px;">WRAP. BITE. REPEAT. 🔄</div>
-  <div class="tiny" style="margin-top:6px;">Thank you! Visit again. Rolls So Big, You Need Two Hands 🙌</div>
-</div>
+<div class="footer"><div class="tiny">Thank you! Visit again.</div></div>
 </body>
 </html>`;
 

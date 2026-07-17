@@ -1,7 +1,7 @@
 {
   "short_name": "Rolls & Co.",
-  "name": "Rolls & Co. — No Empty Bites. Only Loaded Rolls.",
-  "description": "We Don't Roll Small. Rolls So Big, You Need Two Hands. Warning: Extremely Loaded. Wrap. Bite. Repeat. Pickup only.",
+  "name": "Rolls & Co. Restaurant",
+  "description": "Order rolls, burgers, and beverages for pickup.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
