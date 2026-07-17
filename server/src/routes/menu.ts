@@ -36,15 +36,20 @@ export default async function menuRoutes(app: FastifyInstance) {
         })),
     }));
 
+    const getCategoryPriority = (name: string) => {
+      const n = name.toLowerCase();
+      if (n === 'most loved') return 0;
+      if (n.includes('roll')) return 1;
+      if (n.includes('burger')) return 2;
+      if (n.includes('combo')) return 3;
+      if (n.includes('beverage')) return 4;
+      if (n.includes('extra')) return 5;
+      return 99;
+    };
+
     const menuMapWithoutLoved = menuMapRaw
       .filter((m) => m.items.length > 0)
-      .sort((a, b) => {
-        const aLoved = a.items.filter((i: any) => i.isBestseller).length;
-        const bLoved = b.items.filter((i: any) => i.isBestseller).length;
-        if (aLoved !== bLoved) return bLoved - aLoved;
-        return a.sort - b.sort;
-      })
-      .map(({ sort, ...rest }) => rest);
+      .sort((a, b) => getCategoryPriority(a.category) - getCategoryPriority(b.category));
 
     // Create virtual "Most loved" category as 1st
     const mostLovedItems = items
@@ -64,9 +69,9 @@ export default async function menuRoutes(app: FastifyInstance) {
       }))
       .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-    let finalMenu = menuMapWithoutLoved;
+    let finalMenu = menuMapWithoutLoved.map(({ sort, ...rest }) => rest);
     if (mostLovedItems.length > 0) {
-      finalMenu = [{ category: 'Most loved', items: mostLovedItems } as any, ...menuMapWithoutLoved];
+      finalMenu = [{ category: 'Most loved', items: mostLovedItems } as any, ...finalMenu];
     }
 
     return {

@@ -49,6 +49,18 @@ export default function MenuPage() {
         // Remove any existing virtual "Most loved" from server to avoid duplication (we will rebuild fresh)
         const cleanData = rawData.filter((c) => c.category.toLowerCase() !== 'most loved');
 
+        // Helper: fixed category order as requested
+        const getCategoryPriority = (name: string) => {
+          const n = name.toLowerCase();
+          if (n === 'most loved') return 0;
+          if (n.includes('roll')) return 1; // Roll / Rolls
+          if (n.includes('burger')) return 2;
+          if (n.includes('combo')) return 3;
+          if (n.includes('beverage')) return 4;
+          if (n.includes('extra')) return 5;
+          return 99;
+        };
+
         const processed = cleanData
           .map((cat) => ({
             ...cat,
@@ -59,12 +71,7 @@ export default function MenuPage() {
               return a.name.localeCompare(b.name);
             }),
           }))
-          .sort((a, b) => {
-            const aCount = a.items.filter((i) => i.isBestseller).length;
-            const bCount = b.items.filter((i) => i.isBestseller).length;
-            if (aCount !== bCount) return bCount - aCount;
-            return a.category.localeCompare(b.category);
-          });
+          .sort((a, b) => getCategoryPriority(a.category) - getCategoryPriority(b.category));
 
         // Build "Most loved" virtual category aggregating all bestseller items
         const allItems = cleanData.flatMap((c) => c.items);
@@ -149,7 +156,6 @@ export default function MenuPage() {
           ) : (
             <div className="space-y-8">
               {menu.map((cat) => {
-                const lovedCount = cat.items.filter((i) => i.isBestseller).length;
                 const isMostLovedCat = cat.category === 'Most loved';
                 return (
                   <section
@@ -162,9 +168,6 @@ export default function MenuPage() {
                         <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                           {isMostLovedCat && <span className="text-accent-500">🔥</span>} {cat.category}
                         </h2>
-                        {!isMostLovedCat && lovedCount > 0 && (
-                          <span className="text-[10px] font-bold bg-accent-500 text-black px-2 py-0.5 rounded-full">Most loved • {lovedCount}</span>
-                        )}
                         {isMostLovedCat && (
                           <span className="text-[10px] font-bold bg-black text-white px-2 py-0.5 rounded-full">{cat.items.length} favourites</span>
                         )}
