@@ -401,7 +401,7 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
                   onChange={(e) => setForm((f) => ({ ...f, isBestseller: e.target.checked }))}
                   className="rounded border-gray-600 bg-gray-900 text-brand-600 focus:ring-brand-600"
                 />
-                <Star className="w-4 h-4 text-accent-500" /> Mark as Bestseller
+                <Star className="w-4 h-4 text-accent-500" /> Mark as Most loved
               </label>
               <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
                 <input

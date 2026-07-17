@@ -41,8 +41,13 @@ export default function MenuItemCard({ item }: MenuItemCardProps) {
           </div>
         )}
         {item.isBestseller && (
-          <div className="absolute top-1 left-1 flex items-center gap-0.5 bg-accent-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-            <Flame className="w-3 h-3" /> Bestseller
+          <div className="absolute top-1 left-1 flex items-center gap-0.5 bg-accent-500 text-black text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full">
+            <Flame className="w-3 h-3" /> Most loved
+          </div>
+        )}
+        {item.category?.toLowerCase().includes('roll') && (
+          <div className="absolute bottom-1 left-1 right-1 bg-black/85 backdrop-blur-sm text-white text-[8px] font-black tracking-[0.15em] uppercase px-2 py-0.5 rounded-full text-center">
+            ⚡ Extremely Loaded
           </div>
         )}
       </div>

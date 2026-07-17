@@ -74,14 +74,18 @@ export default function OrderSuccess() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-6">
-      {/* Success Header */}
+      {/* Success Header - Branded */}
       <div className="text-center mb-6">
+        <div className="inline-flex items-center gap-2 bg-black text-white text-[10px] font-black tracking-[0.2em] uppercase px-3 py-1 rounded-full mb-3">
+          ⚡ Warning: Extremely Loaded • PAID
+        </div>
         <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
           <CheckCircle className="w-8 h-8 text-green-600" />
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">Order Placed!</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          An SMS has been sent to <span className="font-semibold text-gray-700">{order.customerPhone}</span>
+        <h1 className="text-2xl font-black uppercase tracking-tight text-gray-900">Order Placed! 🔥</h1>
+        <p className="text-sm font-bold tracking-wide text-brand-600 mt-1 uppercase">No Empty Bites. Only Loaded Rolls.</p>
+        <p className="text-xs text-gray-500 mt-2">
+          SMS sent to <span className="font-semibold text-gray-700">{order.customerPhone}</span> • Wrap. Bite. Repeat. 🔄
         </p>
         {autoPrinted && (
           <p className="text-xs text-green-600 mt-2 flex items-center justify-center gap-1">
@@ -90,12 +94,37 @@ export default function OrderSuccess() {
         )}
       </div>
 
-      {/* Order Number Card */}
-      <div className="bg-brand-600 rounded-xl p-4 mb-4 text-white text-center">
-        <div className="text-xs text-white/80 uppercase tracking-wider mb-1">Order Number</div>
-        <div className="text-3xl font-bold tracking-tight">{order.orderNo}</div>
-        <div className="text-xs text-white/70 mt-2">
-          Show this at the counter to collect your order
+      {/* Order Number Card - Branded */}
+      <div className="bg-black rounded-2xl p-4 mb-4 text-white text-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,_rgba(230,57,70,0.3),_transparent_60%)]" />
+        <div className="relative">
+          <div className="text-[10px] font-black tracking-[0.2em] uppercase text-accent-400 mb-1">Order Number • We Don't Roll Small</div>
+          <div className="text-3xl font-black tracking-tight">{order.orderNo}</div>
+          <div className="text-[11px] text-white/60 mt-2 font-medium">
+            Show this at counter • Rolls So Big, You Need Two Hands 🙌
+          </div>
+        </div>
+      </div>
+
+      {/* Estimated Time - PICKUP INSTRUCTION */}
+      <div className="mb-4 rounded-2xl bg-amber-50 border-2 border-amber-300 p-4 flex gap-3">
+        <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center shrink-0 relative">
+          <Clock className="w-6 h-6 text-white" />
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="font-black text-[13px] uppercase tracking-tight text-gray-900">Estimated Prep Time</h4>
+            <span className="text-[10px] font-black uppercase tracking-widest bg-black text-white px-2 py-0.5 rounded-full">5-10 mins</span>
+          </div>
+          <p className="text-[13px] font-bold text-gray-900 mt-1 leading-snug">
+            Your order will be ready in <span className="text-amber-700">5-10 minutes</span>. Please make yourself available to collect your order at the counter.
+          </p>
+          <div className="mt-2">
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full border border-amber-200">
+              <MapPin className="w-3 h-3" /> {order.store?.name}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -188,14 +217,22 @@ export default function OrderSuccess() {
         </div>
       </div>
 
+      {/* Loyalty CTA */}
+      <div className="rounded-2xl bg-accent-500 p-4 mb-4 text-center">
+        <div className="text-[10px] font-black tracking-[0.2em] uppercase text-black/60">Loyalty Habit Tagline</div>
+        <div className="font-black text-xl uppercase tracking-tight text-black mt-1">Wrap. Bite. Repeat. 🔄</div>
+        <p className="text-xs font-medium text-black/70 mt-1">Loved it? You know the drill. Two hands needed next time too 🙌</p>
+      </div>
+
       {/* Order Again */}
       <div className="flex flex-col gap-3">
         <Link
           to="/"
-          className="w-full py-2.5 rounded-lg bg-brand-600 text-white font-semibold text-sm text-center hover:bg-brand-700 transition"
+          className="w-full py-3.5 rounded-2xl bg-black text-white font-black uppercase tracking-wide text-sm text-center hover:bg-gray-900 transition"
         >
-          Order More
+          Order More • We Don't Roll Small
         </Link>
+        <p className="text-center text-[10px] font-bold tracking-widest uppercase text-gray-400 mt-1">No Empty Bites. Only Loaded Rolls. • Warning: Extremely Loaded ⚡</p>
       </div>
     </div>
   );

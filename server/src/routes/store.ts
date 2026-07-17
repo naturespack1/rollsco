@@ -11,7 +11,15 @@ export default async function storeRoutes(app: FastifyInstance) {
         isOpen: true,
         acceptingOrders: true,
       },
+      orderBy: [{ isOpen: 'desc' }, { acceptingOrders: 'desc' }, { name: 'asc' }],
     });
-    return { success: true, data: stores };
+    // Ensure true open stores first (isOpen && acceptingOrders)
+    const sorted = [...stores].sort((a, b) => {
+      const aOpen = a.isOpen && a.acceptingOrders ? 0 : 1;
+      const bOpen = b.isOpen && b.acceptingOrders ? 0 : 1;
+      if (aOpen !== bOpen) return aOpen - bOpen;
+      return a.name.localeCompare(b.name);
+    });
+    return { success: true, data: sorted };
   });
 }

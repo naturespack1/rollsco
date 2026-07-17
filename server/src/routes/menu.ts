@@ -16,8 +16,9 @@ export default async function menuRoutes(app: FastifyInstance) {
       orderBy: [{ isBestseller: 'desc' }, { name: 'asc' }],
     });
 
-    const menuMap = categories.map((cat) => ({
+    const menuMapRaw = categories.map((cat) => ({
       category: cat.name,
+      sort: cat.sort,
       items: items
         .filter((i) => i.categoryId === cat.id)
         .map((i) => ({
@@ -35,11 +36,22 @@ export default async function menuRoutes(app: FastifyInstance) {
         })),
     }));
 
+    // Server-side ordering too: Most loved categories first, then by original sort
+    const menuMap = menuMapRaw
+      .filter((m) => m.items.length > 0)
+      .sort((a, b) => {
+        const aLoved = a.items.filter((i: any) => i.isBestseller).length;
+        const bLoved = b.items.filter((i: any) => i.isBestseller).length;
+        if (aLoved !== bLoved) return bLoved - aLoved;
+        return a.sort - b.sort;
+      })
+      .map(({ sort, ...rest }) => rest);
+
     return {
       success: true,
       data: {
         store,
-        menu: menuMap.filter((m) => m.items.length > 0),
+        menu: menuMap,
       },
     };
   });
