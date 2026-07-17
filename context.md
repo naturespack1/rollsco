@@ -1,254 +1,131 @@
-# Roll's & Co. — Full Context for AI Agents
+# Roll's & Co. — Agent Context (Feature / Component Wise)
 
-> **Project**: Roll's & Co. Restaurant Ordering System  
-> **Type**: Full-stack monorepo (React SPA + Fastify API + PostgreSQL)  
-> **Architecture**: Single-page application (SPA) with lazy-loaded admin dashboard  
-> **Business**: Pickup-only restaurant ordering with Razorpay payments, GST invoicing, SMS receipts, and multi-store admin dashboard.
+> **Repository:** `naturespack1/rollsco`  
+> **Project type:** Full-stack restaurant ordering monorepo  
+> **Frontend:** React 18 + Vite + TypeScript + Tailwind + Zustand  
+> **Backend:** Fastify 4 + TypeScript + Prisma + PostgreSQL  
+> **Business:** Pickup-only Roll's & Co. ordering app with online Razorpay checkout, in-store paid order creation, GST bills, SMS notifications, thermal printing, stock/menu/admin management, and reporting.
 
----
-
-## 1. Business Requirements (Non-Negotiable)
-
-### Customer Flow
-1. Landing page shows hero images + taglines + store selector.
-2. **Menu appears only after store selection**. Changing store clears the cart.
-3. Categories: Roll, Burgers, Beverages, Extras, Combos.
-4. User navigates categories in parallel and adds items to cart.
-5. **Cart is client-side persistent** (localStorage) scoped to `cart:<storeId>`.
-6. **Checkout**: collects phone (required), name (optional), preparation note (optional). No address needed (pickup only).
-7. Payment via Razorpay (UPI/Card). **Prices are computed server-side only**. Client sends only `itemId + quantity`. Any tampering fails because Razorpay order amount is recalculated on the server.
-8. On success: navigates to `/` (store selector), clears selected store, order saved to customer cache (1 day), bill auto-downloaded as HTML, green success banner shown with order number and "Download Bill" button. SMS sent via MSG91.
-9. On payment failure/dismiss: user sees message "Payment was not completed. If money was deducted, it will be refunded within 5-7 business days." Stock is restored.
-10. **Orders cannot be cancelled** by customer after placement.
-
-### Admin Flow
-1. Login at `/admin/login` with email/password. JWT token (7-day expiry).
-2. Multi-admin with role-based access: `SUPER_ADMIN` sees all stores; `MANAGER` sees only assigned stores via `AdminStore` junction table.
-3. Dashboard tabs: **Orders**, **Stock**, **Menu**, **Reports**, **Staff** (Super Admin only).
-4. **Orders**: view active orders, filter by status, change status (CREATED → PROCESSING → DELIVERED). **No instant server push** — changes are buffered locally and pushed via a **Sync** button or **auto-sync interval** (1/3/5 min options). After push, server returns new/updated orders since `lastSync`.
-5. **Stock**: edit quantity per item. Admin can set `stock = 0` to mark out-of-stock.
-6. **Menu**: add/edit/delete items (Super Admin). Toggle availability. Items are scoped to store and category. **Combos are just items in the "Combos" category** — no special combo table or component logic.
-7. **Reports**: daily sales Excel export (`.xlsx`) with order-level CGST/SGST/Grand Total breakdown. Bestseller ranking (top 10 items by quantity sold) with date range: Today / Last 7 Days / Last 30 Days / All Time.
-8. **Staff**: Super Admin can create/remove other admins with role (Super Admin / Manager) and assign stores.
-
-### Security & Reliability
-- **Price tampering protection**: Client never sends `price` or `total`. Server fetches live DB prices, calculates GST (CGST + SGST), and creates Razorpay order for exact server-computed amount.
-- **Duplicate payment protection**: `razorpayOrderId` is unique. Webhook handler checks `if (paymentStatus === 'PAID') return 200;` immediately — safe for duplicates.
-- **Stock race condition protection**: Prisma transaction with `Serializable` isolation. Stock is decremented **before** Razorpay order is created. If Razorpay fails, stock is restored via compensating `failOrder()`.
-- **Cart persistence**: `localStorage` key `quickbite-cart`. Scoped to store. Cleared on successful payment or store change.
-- **Order auto-expiry**: Pending orders older than 15 minutes should be auto-cancelled and stock restored (cron job / background worker — implemented as `expireOldPendingOrders()` in service layer, needs scheduled trigger).
-- **Webhook reliability**: Razorpay webhook handler returns `200` even on errors to avoid infinite retries, but logs errors. Client-side `/verify` endpoint serves as fallback for localhost.
-- **Store closed protection**: Orders rejected if `store.isOpen === false` or `store.acceptingOrders === false`.
+This file is intended as the first file an AI/code agent should read before changing the code. It documents the **current codebase**, including implementation details that may differ from older README notes.
 
 ---
 
-## 2. Technology Stack
+## 1. Quick Mental Model
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 18 + Vite + TypeScript + Tailwind CSS |
-| State | Zustand (with `persist` middleware for cart & store selection) |
-| Routing | React Router DOM v6 |
-| Icons | Lucide React |
-| Backend | Fastify 4 + TypeScript + tsx (dev runtime) |
-| ORM | Prisma 5 + PostgreSQL |
-| Payments | Razorpay (Orders API + Webhooks + Client-side verification fallback) |
-| SMS | MSG91 Flow API |
-| Export | ExcelJS (server-side `.xlsx` generation) |
-| PWA | `vite-plugin-pwa` with Workbox caching for fonts + API menu/stores |
+### Customer side
+1. `/` shows `StoreSelector` unless a store is already selected in Zustand persistence.
+2. Selecting an open store stores it in `quickbite-store`, sets cart `storeId`, then `/` renders `MenuPage`.
+3. `MenuPage` fetches `/api/menu/:storeId`, validates the store is still open and accepting orders, builds fixed category ordering, adds virtual **Most loved** category from bestseller items, and shows cart UI.
+4. Cart is persisted under `quickbite-cart`. It is scoped to the selected store and clears when store changes.
+5. Checkout sends only IDs + quantities to backend. Server recalculates all prices/GST and creates Razorpay order.
+6. Client uses an `Idempotency-Key` stored in cart state to avoid duplicate checkout orders on retry.
+7. Success stores full paid order locally under `rolls-customer-orders`, clears cart and selected store, returns user to StoreSelector with a success banner, and auto-downloads HTML bill.
+8. Receipts require both `orderId` and `customerAccessToken`: `/success/:orderId?token=...`.
+
+### Admin side
+1. `/admin/login` authenticates email/password and persists JWT + admin data in `rolls-admin`.
+2. `/admin/*` is wrapped by `ProtectedRoute` and lazy-loads `AdminDashboard`.
+3. `AdminDashboard` loads stores from public `/api/stores`, filters by admin role/store assignments, and exposes tabs:
+   - **Manager tabs:** New Order, Orders, Stock
+   - **Super Admin extra tabs:** Menu, Reports, Staff
+4. Dashboard includes store status controls (open/closed and accepting/paused) above all tabs.
+5. Admin orders use local buffered status updates and manual/auto sync.
+6. Admin can create **instore orders** that are immediately `PAID` with `paymentMethod=INSTORE` and do not open Razorpay.
 
 ---
 
-## 3. Project Structure
+## 2. Important Business Rules
 
-```
-restaurant-app/
-├── package.json                 # workspace root (npm workspaces: server, client)
+- **Pickup only.** No delivery address. No customer cancellation flow.
+- **Store must be open and accepting orders** for customer checkout.
+- **Menu prices are GST-inclusive.** The displayed price is the final customer price.
+- **Client is not trusted for price or tax.** Client sends only `{ id, quantity }`; backend loads item prices/GST and computes all totals.
+- **Combos are normal `Item` rows** in category `Combos`. There is no `Combo` table or combo-specific frontend logic.
+- **Stock is deducted when order is created**, before payment is completed. If payment fails/expires, stock is restored.
+- **Online order success requires payment becoming `PAID`.** This happens via Razorpay webhook or client-side verify fallback.
+- **Order status pipeline:** `CREATED -> PROCESSING -> DELIVERED`. Admin can set status with dropdown; updates are buffered locally until sync.
+- **Payment methods:** `ONLINE` for Razorpay, `INSTORE` for admin-created counter orders.
+- **Receipt privacy:** customer-visible order status/receipt route requires UUID order id plus secret `customerAccessToken`.
+
+---
+
+## 3. Monorepo Structure
+
+```txt
+rollsco/
+├── package.json                  # npm workspaces: server, client
+├── README.md
+├── context.md                    # this agent context file
 ├── client/
-│   ├── index.html
-│   ├── vite.config.ts           # PWA plugin, proxy /api → localhost:3000, manualChunks for admin
+│   ├── package.json
+│   ├── vite.config.ts            # Vite, PWA plugin, /api proxy, alias @ -> src
 │   ├── public/
-│   │   ├── manifest.json        # "Roll's & Co.", standalone, theme_color: #f97316
-│   │   ├── icons/               # 192x192, 512x512
-│   │   └── images/              # rolls.jpg, burgers.jpg, beverages.jpg, extras.jpg, combos.jpg
+│   │   ├── manifest.json
+│   │   └── images/               # rolls.jpg, burgers.jpg, beverages.jpg, extras.jpg, combos.jpg
 │   └── src/
-│       ├── main.tsx             # React root, BrowserRouter
-│       ├── App.tsx              # Routes: /, /checkout, /success/:orderId, /admin/login, /admin/*
-│       ├── index.css            # Tailwind directives, brand color extensions
-│       ├── types/index.ts       # Store, MenuItem, CartItem, Order, AdminUser interfaces
-│       ├── lib/
-│       │   ├── api.ts           # Axios instance, auto-attaches Bearer token, 401 → redirect to /admin/login
-│       │   ├── utils.ts         # cn() (clsx + tailwind-merge), formatPrice(₹), formatPhone(10 digits)
-│       │   └── razorpay.ts      # loadRazorpayScript(), openRazorpayCheckout()
-│       ├── store/
-│       │   ├── useCartStore.ts             # Zustand + persist: items[], add/remove/update, getTotals(), getItemCount()
-│       │   ├── useStoreStore.ts            # Zustand + persist: selectedStore, clearStore
-│       │   ├── useAdminStore.ts            # Zustand + persist: token, admin, logout
-│       │   ├── useAdminCacheStore.ts       # Zustand + persist: dashboard cache (orders, menu, bestsellers, pending updates, sync settings). Reduces server calls.
-│       │   └── useCustomerOrdersStore.ts   # Zustand + persist: completed customer orders (1-day expiry). Drives post-payment success banner on StoreSelector.
-│       ├── components/
-│       │   ├── Header.tsx       # Sticky top nav. Shows store name (clickable to change), cart icon, count
-│       │   ├── ProtectedRoute.tsx # Redirects to /admin/login if no token
-│       │   ├── CategoryNav.tsx   # Horizontal pill tabs (flex-wrap), sticky below header
-│       │   ├── MenuItemCard.tsx  # Image, bestseller flame badge, low-stock badge, +/- or Add button
-│       │   ├── CartDrawer.tsx    # Desktop sidebar (lg:block). Lists items, GST split, checkout button
-│       │   ├── MobileCart.tsx   # Fixed bottom bar on mobile. Item count, names, total, checkout
-│       │   └── BillPrint.tsx    # Opens 80mm thermal print window. Chef bill (no prices) + Customer bill (full GST invoice)
-│       └── pages/
-│           ├── StoreSelector.tsx  # Hero 3-image banner + store cards (Open/Closed badge). Post-payment success banner with order number + Download Bill button.
-│           ├── MenuPage.tsx       # CategoryNav + MenuItemCard grid + CartDrawer + MobileCart
-│           ├── CheckoutPage.tsx   # Order summary (read-only), customer details, Razorpay checkout
-│           ├── OrderSuccess.tsx   # Receipt page by orderId. Shows items, GST, store, pickup instructions
-│           └── admin/
-│               ├── AdminLogin.tsx   # Dark themed login, email/password, JWT stored in localStorage
-│               ├── AdminDashboard.tsx # Sidebar layout (desktop) / mobile overlay nav. Store picker. Tab router.
-│               ├── AdminOrders.tsx    # Order list, status dropdown, expand details, sync button, auto-sync interval
-│               ├── AdminStock.tsx     # Item list with editable stock input + save button
-│               ├── AdminMenu.tsx      # Add/edit/delete items. Toggle availability. Category filter.
-│               ├── AdminReports.tsx   # Daily export date picker + Excel download. Bestseller with date range.
-│               └── AdminStaff.tsx     # Add/remove admin users. Role + store assignment. Super Admin only.
+│       ├── App.tsx               # route switch and selected-store guard
+│       ├── main.tsx              # BrowserRouter + React root
+│       ├── index.css             # Tailwind base/components/utilities
+│       ├── components/           # reusable customer/admin UI and print components
+│       ├── lib/                  # api client, razorpay loader, print helpers, utils
+│       ├── pages/                # customer pages + admin pages
+│       ├── store/                # Zustand persisted stores
+│       └── types/index.ts        # shared frontend interfaces
 └── server/
     ├── package.json
-    ├── tsconfig.json
-    ├── .env.example
     ├── prisma/
-    │   ├── schema.prisma          # Simplified: Store, Category, Item, Order, OrderItem, AdminUser, AdminStore
-    │   └── seed.ts               # 2 stores, 15 items (3 combos as items), 1 super admin, realistic data
+    │   ├── schema.prisma         # DB schema
+    │   ├── seed.ts               # Patna demo stores/menu/default admin
+    │   └── migrations/
     └── src/
-        ├── index.ts               # Fastify bootstrap: CORS, JWT, plugins, routes, health check
-        ├── config.ts              # Central env reader (PORT, DATABASE_URL, RAZORPAY_*, JWT_SECRET, MSG91_*)
-        ├── prismaClient.ts         # Singleton PrismaClient with query logging in dev
-        ├── plugins/
-        │   ├── errorHandler.ts     # Prisma error codes (P2002, P2025) → proper HTTP status
-        │   └── auth.ts             # `authenticate` exported function. Verifies JWT, attaches request.admin
-        ├── utils/
-        │   ├── gstCalc.ts          # calculateGst(): returns { subtotal, cgstAmount, sgstAmount, total }
-        │   └── orderNumber.ts      # generateOrderNumber(): format R-YYMMDD-### (daily sequence)
-        ├── routes/
-        │   ├── store.ts            # GET /api/stores — public list
-        │   ├── menu.ts             # GET /api/menu/:storeId — public. Returns items grouped by category. No combo logic.
-        │   ├── order.ts            # POST /api/orders/create (cartSchema Zod), GET /api/orders/status/:orderId, GET /api/orders/receipt/:orderNo, POST /api/orders/verify
-        │   ├── webhook.ts          # POST /api/webhooks/razorpay — signature verification, idempotent payment handling
-        │   ├── adminAuth.ts        # POST /api/admin/auth/login, GET /api/admin/auth/me
-        │   └── adminDashboard.ts   # GET /orders, POST /orders/sync, GET /orders/new, POST /stock, GET /menu/:storeId, POST /items, PUT /items, DELETE /items/:id, GET /categories, GET /admins, POST /admins, DELETE /admins/:id, GET /bestsellers, GET /export/daily
-        └── services/
-            ├── paymentService.ts   # Razorpay order creation, webhook signature verification, fetch/refund payment (lazy init)
-            ├── orderService.ts     # Core transaction: createPendingOrder (validate, lock stock, create order), markOrderPaid (idempotent), failOrder (restore stock), expireOldPendingOrders
-            ├── smsService.ts       # MSG91 Flow API POST. No-op if MSG91_AUTHKEY missing.
-            └── exportService.ts    # ExcelJS daily sales report: orderNo, time, itemName, qty, unitPrice, totalPrice, CGST, SGST, grandTotal
+        ├── index.ts              # Fastify bootstrap + maintenance timer
+        ├── config.ts             # env reader/production validation
+        ├── prismaClient.ts       # Prisma singleton
+        ├── plugins/              # auth, error handler, checkout abuse guard
+        ├── routes/               # public and admin route modules
+        ├── services/             # order/payment/sms/export/reconciliation logic
+        └── utils/                # GST calculation, order number generation
 ```
 
 ---
 
-## 4. Database Schema (Prisma)
+## 4. Commands
 
-### Models
-- **Store**: id, name, address, isOpen, acceptingOrders, items[], orders[], adminStores[]
-- **Category**: id, name (unique), sort, items[]
-- **Item**: id, storeId, categoryId, name, description, price (Decimal), gstRate (Decimal, default 5), hsnCode, stock, imageUrl, isBestseller, isAvailable, orderItems[]
-- **Order**: id, orderNo (unique, format R-YYMMDD-###), storeId, customerPhone, customerName, customerMessage, status (CREATED/PROCESSING/DELIVERED), paymentStatus (PENDING/PAID/FAILED/REFUNDED), razorpayOrderId (unique), razorpayPaymentId, idempotencyKey (unique), subtotal, cgstAmount, sgstAmount, total, items[], createdAt, updatedAt
-- **OrderItem**: id, orderId, itemId, itemName (snapshot), quantity, unitPrice (inclusive/menu price), totalPrice (inclusive line total), basePrice (excl. tax), baseTotal (excl. tax total), gstRate
-- **AdminUser**: id, email (unique), name, passwordHash, role (SUPER_ADMIN/MANAGER), stores[]
-- **AdminStore**: id, adminId, storeId, admin, store. @@unique([adminId, storeId])
+Run from repo root unless noted.
 
-### No Combo Table
-Combos are **just items** in the "Combos" category. They have their own independent stock, price, and GST rate. No component-level tracking.
+```bash
+npm install                         # install workspace deps
+npm run dev:server                  # server on :3000
+npm run dev:client                  # client on :5173, proxies /api -> :3000
+npm run build                       # build server then client
+npm run test                        # server vitest tests
+npm run db:push                     # Prisma db push through server workspace
+npm run db:seed                     # seed demo stores/items/admin
+```
 
-### Indexes
-- `@@index([storeId, categoryId])` on Item
-- `@@index([storeId, status, createdAt])` on Order
-- `@@index([paymentStatus, createdAt])` on Order
+Server package scripts:
 
----
-
-## 5. API Contract Summary
-
-### Public Routes (No Auth)
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/stores` | List all stores with open/close status |
-| GET | `/api/menu/:storeId` | Full menu grouped by category. All items are flat — combos are just items in "Combos" category. |
-| POST | `/api/orders/create` | Body: `{ storeId, customerPhone, customerName?, customerMessage?, items: [{id, quantity}] }`. Returns `{ orderId, orderNo, razorpayOrderId, amount, keyId, currency }`. |
-| GET | `/api/orders/status/:orderId` | Poll payment status after Razorpay attempt. |
-| GET | `/api/orders/receipt/:orderNo` | Full receipt with store info. |
-| POST | `/api/orders/verify` | Body: `{ orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature }`. Client-side verification fallback. |
-| POST | `/api/webhooks/razorpay` | Razorpay webhook. Verifies `x-razorpay-signature`. Idempotent. |
-
-### Admin Routes (Bearer JWT + Store Access Check)
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/api/admin/auth/login` | `{ email, password }` → `{ token, admin }` |
-| GET | `/api/admin/auth/me` | Returns current admin + storeIds |
-| GET | `/api/admin/orders?storeId=&status=&page=&limit=` | Paginated orders. Enforces store access. |
-| POST | `/api/admin/orders/sync?storeId=` | Body: `{ updates: [{orderId, status}], lastSync? }`. Pushes buffered status changes, returns orders updated since `lastSync`. |
-| GET | `/api/admin/orders/new?storeId=&after=` | Returns orders created/updated after timestamp (default: last 5 min). |
-| POST | `/api/admin/stock` | Body: `{ itemId, stock }`. Updates item stock. Enforces store access. |
-| GET | `/api/admin/menu/:storeId` | Returns all items with `categoryName` flattened, `categoryId`, `storeId`, and price/stock as plain numbers. |
-| POST | `/api/admin/items` | Create new item. Super Admin only. |
-| PUT | `/api/admin/items` | Update any field of an item. |
-| DELETE | `/api/admin/items/:id` | Delete item. |
-| GET | `/api/admin/categories` | List all categories. |
-| GET | `/api/admin/admins` | List all staff. Super Admin only. |
-| POST | `/api/admin/admins` | Create new admin. Super Admin only. |
-| DELETE | `/api/admin/admins/:id` | Remove admin. Super Admin only. |
-| GET | `/api/admin/bestsellers?storeId=&days=` | Top 10 items sold. `days=0` = all time, `days=1` = today, etc. |
-| GET | `/api/admin/export/daily?storeId=&date=` | Downloads `.xlsx` file with daily sales breakdown. |
+```bash
+cd server
+npm run dev                         # tsx watch src/index.ts
+npm run build                       # prisma generate && tsc
+npm run db:generate                 # prisma generate
+npm run test                        # vitest run
+```
 
 ---
 
-## 6. Critical Business Logic Details
+## 5. Environment Variables
 
-### GST Calculation (Prices are GST-Inclusive)
-- **Menu prices are always GST-inclusive** (what the customer pays).
-- Base price is reverse-calculated: `basePrice = inclusivePrice / (1 + gstRate/100)`
-- GST amount = `inclusivePrice - basePrice`
-- CGST = GST / 2, SGST = GST / 2
-- Total = sum of inclusive prices (what customer actually pays)
-- Example: ₹120 at 5% GST → base ₹114.29, CGST ₹2.86, SGST ₹2.86, total ₹120
-- Server recalculates from scratch on checkout. Client preview uses same math for UX.
-
-### Order Creation Transaction Flow
-1. Start Prisma transaction (`Serializable`, 5s maxWait, 10s timeout).
-2. Validate all items exist and belong to the selected store.
-3. **Check stock**: `item.stock >= qty` for each item.
-4. **Deduct stock** immediately for each item.
-5. Compute GST, generate order number.
-6. Create `Order` (status CREATED, paymentStatus PENDING) + `OrderItem` rows.
-7. **Commit transaction**.
-8. Create Razorpay order (outside DB tx to avoid holding locks).
-9. If Razorpay creation fails: call `failOrder()` → restore stock, mark FAILED.
-10. Update `Order` with `razorpayOrderId`.
-
-### Payment Failure / Dismissal
-- If user closes Razorpay modal: client polls `/api/orders/status/:orderId` after 3s.
-- If still PENDING: show failure message with refund assurance.
-- If webhook receives `payment.failed` or order expires (>15 min): `failOrder()` restores stock and marks FAILED.
-
-### Admin Sync Pattern
-- Admin UI keeps `pendingUpdates` map locally (`{ orderId: newStatus }`).
-- Optimistic UI updates the order list immediately.
-- **Sync button** sends all pending updates to `POST /api/admin/orders/sync`.
-- Server applies updates, then returns all orders with `updatedAt > lastSync`.
-- Client merges: keeps local pending updates, adds new orders, updates non-conflicting rows.
-- Auto-sync interval runs same logic every 1/3/5 minutes if selected.
-
-### Combos as Items
-- The "Combos" category is just a regular category in the `Category` table.
-- Combo items have their own price, stock, and GST rate managed independently.
-- No component-level tracking. A "Classic Combo" is just one item with `stock = 30`.
-- When ordered, stock is decremented like any other item.
-- This simplifies the entire codebase — no `Combo` table, no `ComboItem` junction table, no special frontend logic.
-
----
-
-## 7. Environment Variables (`.env.example`)
+### Server (`server/.env.example`)
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/rollsandco?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/quickbite?schema=public"
 RAZORPAY_KEY_ID="rzp_test_xxxxxxxx"
 RAZORPAY_KEY_SECRET="xxxxxxxx"
 RAZORPAY_WEBHOOK_SECRET="whsec_xxxxxxxx"
-JWT_SECRET="super-secret-jwt-change-me"
+JWT_SECRET="use-a-random-secret-of-at-least-32-characters"
+FRONTEND_ORIGIN="https://your-frontend.example.com"
 MSG91_AUTHKEY="xxxxxxxx"
 MSG91_SENDERID="ROLLCO"
 MSG91_TEMPLATE_ID="order_confirmation"
@@ -257,98 +134,685 @@ ADMIN_DEFAULT_PASSWORD="admin123"
 PORT=3000
 ```
 
----
+`server/src/config.ts` behavior:
+- `NODE_ENV` defaults to `development`.
+- In production, missing required values throw at startup.
+- Production JWT secret must be at least 32 chars.
+- `FRONTEND_ORIGIN` is comma-separated, optional at startup; in production CORS allows only listed origins.
+- Defaults still reference `quickbite` DB and `QUICKB` sender in code; seed/default UI is Roll's & Co.
 
-## 8. Known Gaps / Future Enhancements
-- **Order expiry cron**: `expireOldPendingOrders()` exists in `orderService.ts` but is **not yet scheduled**. Add a `node-cron` or `bullmq` job to call it every 5 minutes.
-- **Webhook reconciliation cron**: Should periodically query Razorpay for `PENDING` orders older than 5 minutes to handle missed webhooks.
-- **Customer Name field**: Optional in checkout but currently only used in DB. Could be shown on receipt/SMS.
-- **Pickup token / queue position**: Not yet implemented. Could add `pickupToken` (4-digit) to `Order` model and show in success page/SMS.
-- **Store toggle**: Admin cannot yet toggle `isOpen` / `acceptingOrders` from dashboard. Need admin API + UI.
-- **Admin activity log**: Not implemented. Useful for multi-manager accountability.
-- **WhatsApp notifications**: Schema supports extension. MSG91 also supports WhatsApp via same Flow API.
-- **Rate limiting**: No rate limiting middleware installed yet. Recommend `@fastify/rate-limit` on checkout and login.
-- **Image optimization**: Currently using generated JPGs. In production, use WebP with fallback, CDN, or at least responsive `srcset`.
+### Client (`client/.env.example`)
 
----
+```env
+# Local dev can leave it as /api via Vite proxy.
+VITE_API_URL=https://rollsco-server.vercel.app/api
+```
 
-## 8.5 Admin Dashboard Caching & Offline Mode
-
-The admin dashboard uses a dedicated Zustand store (`useAdminCacheStore.ts`) with `persist` middleware to cache data locally and support offline operation.
-
-### Cached Data Structures
-- **`ordersCache`**: Stores paginated orders per store+filter key with a timestamp. Staleness threshold: 5 minutes for background refresh, **hard expiry: 6 hours**. Loaded immediately on mount; background refresh if stale.
-- **`menuCache`**: Stores full menu items list per store with timestamp. Staleness threshold: 10 minutes for background refresh, **hard expiry: 6 hours**. Allows instant menu editing without waiting for server round-trip.
-- **`bestsellersCache`**: Stores top-10 bestsellers per store+days filter. Staleness threshold: 5 minutes for background refresh, **hard expiry: 6 hours**.
-- **`autoSyncInterval`**: Admin's selected auto-sync interval (1/3/5 min or 0 for manual). Persisted across page refreshes via localStorage.
-- **`lastSync`**: Timestamp of the last successful server sync. Persisted so incremental fetches continue correctly after refresh.
-- **`pendingOrderUpdates`**: Buffered status changes (`{ orderId: newStatus }`) that survive page reloads. Pushed to server via sync button or auto-sync interval.
-
-### Customer Orders Cache (`useCustomerOrdersStore.ts`)
-- Stores completed customer orders with **1-day (1440 min) hard expiry**.
-- On payment success, the full order data is saved locally so the customer can review it without a server round-trip.
-- `lastCompletedOrderId` + `lastCompletedOrderShown` flag drives the **green success notification banner** on the Store Selector page.
-- `getRecentOrders()` returns all non-stale orders sorted by createdAt desc — shown in a **"Your Orders (Last 24 Hours)"** section at the bottom of the Store Selector page.
-- Each order card shows: order number, payment status badge, store name, item list (first 3 + "+N more"), total, Download Bill and View Receipt buttons.
-- Stale entries are auto-purged on every new order addition.
-- Auto-downloads the GST bill HTML immediately after payment confirmation.
-
-### Load Strategy
-1. **Cache-first**: Render cached data immediately if available. If data is older than 6 hours, it is treated as missing and a fresh fetch is triggered.
-2. **Background fetch**: If cache is within 6 hours but past the per-type soft staleness threshold (5–10 min), fetch in background and re-render.
-3. **Offline indicator**: `navigator.onLine` listeners toggle an `isOffline` flag. When offline, cached data up to 6 hours old is shown with a yellow "Offline Mode" badge.
-4. **Optimistic updates**: Stock changes, availability toggles, and menu edits update the cache immediately before the server confirms, reverting only on error.
-5. **Persisted sync settings**: `autoSyncInterval` and `lastSync` are saved to the same localStorage cache store, so the admin's chosen sync interval and sync timestamp survive page refreshes.
-
-### Sync Pattern
-- Admin buffers status changes locally. The UI reflects them immediately (optimistic).
-- **Manual sync**: "Sync Now" button pushes all pending updates to `POST /api/admin/orders/sync`.
-- **Auto-sync**: Configurable interval (1 / 3 / 5 minutes) runs the same push + fetch cycle.
-- After successful sync, server returns all orders with `updatedAt > lastSync`. Client merges these without overwriting any new pending updates that may have been created during the network call.
-- **Conflict resolution**: Last-write-wins for status. If server has a newer status, it overrides local pending for that order.
-
-### Cache Invalidation
-- **Force Refresh**: Each tab (Orders, Stock, Menu, Reports) has a refresh button that bypasses cache and fetches fresh data.
-- **Clear All Cache**: Sidebar footer contains a "Clear Cache" button that wipes all cached stores, triggers a full reload, and resets pending updates.
-- **Logout**: Cache is intentionally preserved across logout/login for the same admin device, but `pendingOrderUpdates` is cleared after successful sync to prevent stale data for the next session.
-
-### Offline Mode UX
-- All admin tabs remain functional with cached data.
-- Edits (stock, availability, menu items) are queued and applied optimistically. A toast/indicator shows "Changes saved locally — will sync when online".
-- Network restoration triggers an automatic background sync if auto-sync is enabled.
+`client/src/lib/api.ts` defaults to `/api` when `VITE_API_URL` is not set.
 
 ---
 
-## 9. Testing Checklist for Agents
+## 6. Database Schema (Current Prisma)
 
-When modifying code, verify:
-- [ ] Cart store clears on `setStoreId` change (different store).
-- [ ] `useCartStore.getTotals()` matches server-side `calculateGst()` exactly.
-- [ ] `orderService.ts` `createPendingOrder` uses `Serializable` isolation and never holds Razorpay call inside the DB transaction.
-- [ ] `markOrderPaid` is idempotent (checks `paymentStatus === 'PAID'` early return).
-- [ ] `webhook.ts` returns HTTP 200 even on errors to avoid Razorpay infinite retries.
-- [ ] Admin `enforceStoreAccess` blocks managers from accessing unassigned stores.
-- [ ] Admin sync merges server data without overwriting local pending updates.
-- [ ] `formatPhone` strips non-digits and takes last 10 characters.
-- [ ] All items are flat — no `Combo` / `ComboItem` / `type` distinction anywhere.
-- [ ] `AdminMenu` can add, edit, and delete items. Combos are just items in the "Combos" category.
-- [ ] `AdminStaff` is only visible to Super Admin. Managers don't see it.
-- [ ] `bestsellers` query works with `days=0` for all-time data.
-- [ ] BillPrint uses `unitPrice` (inclusive) and `totalPrice` (inclusive) for customer bill line items. Chef bill has no prices.
-- [ ] OrderItem stores `unitPrice` (inclusive), `totalPrice` (inclusive), `basePrice`, `baseTotal`, `gstRate` for correct billing.
-- [ ] CustomerBill component auto-prints bill on OrderSuccess page after 1.5s delay. Also provides Print & Download buttons.
-- [ ] `/status/:orderId` includes `store` relation so success page can auto-print with store header.
-- [ ] `AdminOrders` fetches store name/address for bill header.
+### Core models
+- `Store`
+  - `id`, `name`, `address`, `isOpen`, `acceptingOrders`, `createdAt`
+  - Relations: `items`, `orders`, `adminStores`
+- `Category`
+  - `id`, `name` unique, `sort`
+- `Item`
+  - `id`, `storeId`, `categoryId`, `name`, `description`, `price`, `gstRate`, `hsnCode`, `stock`, `imageUrl`, `isBestseller`, `isAvailable`
+  - Index: `[storeId, categoryId]`
+- `Order`
+  - `id`, `orderNo`, `storeId`, `customerPhone`, `customerName`, `customerMessage`
+  - `customerAccessToken` unique secret for receipt/status access
+  - `createdByAdminId` optional for instore orders
+  - `status`: `CREATED | PROCESSING | DELIVERED`
+  - `paymentStatus`: `PENDING | PAID | FAILED | REFUNDED`
+  - `paymentMethod`: `ONLINE | INSTORE`
+  - Razorpay fields: `razorpayOrderId` unique nullable, `razorpayPaymentId`
+  - `idempotencyKey` unique nullable for online checkout retry safety
+  - Monetary fields: `subtotal`, `cgstAmount`, `sgstAmount`, `total`
+  - Indexes: `[storeId,status,createdAt]`, `[storeId,paymentStatus,createdAt]`, `[paymentStatus,createdAt]`
+- `OrderItem`
+  - Snapshot fields: `itemName`, `quantity`, `unitPrice`, `totalPrice`, `basePrice`, `baseTotal`, `gstRate`
+  - `unitPrice` and `totalPrice` are GST-inclusive.
+- `AdminUser`
+  - `id`, `email`, `name`, `passwordHash`, `role`, relation to assigned stores and created instore orders
+- `AdminStore`
+  - Join table with `@@unique([adminId, storeId])`
+- `DailyOrderSequence`
+  - `dateKey`, `nextValue`; used by atomic order number generator
+- `PaymentEvent`
+  - Records Razorpay webhooks and client verification events with `dedupeKey` unique, raw JSON payload, status, processedAt
+
+### Seed data (`server/prisma/seed.ts`)
+- Deletes orders/items/categories/admins/stores before reseeding.
+- Stores:
+  - `Roll's & Co. Boring Road`, address `Boring Road, Patna`
+  - `Roll's & Co. Kankarbagh`, address `Kankarbagh, Patna`
+- Default admin:
+  - email `admin@rollsandco.com`
+  - password `admin123`
+  - role `SUPER_ADMIN`
+- Categories: `Roll`, `Burgers`, `Beverages`, `Extras`, `Combos`
+- 15 sample items for store 1, replicated to store 2.
 
 ---
 
-## 10. Brand Identity
+## 7. Backend Bootstrap and Cross-Cutting Concerns
 
-- **Name**: Roll's & Co.
-- **Default Admin**: `admin@rollsandco.com` / `admin123`
-- **Stores**: "Roll's & Co. Koramangala", "Roll's & Co. HSR Layout"
-- **Primary Color**: `#E63946` (Tailwind `brand-500` / red)
-- **Accent Color**: `#FFC300` (Tailwind `accent-500` / yellow)
-- **Theme Color**: `#E63946`
-- **SMS Sender ID**: `ROLLCO`
-- **App Display**: Standalone PWA, portrait orientation
+### `server/src/index.ts`
+- Creates Fastify with logging and `trustProxy: true`.
+- Registers:
+  - Helmet with strict base CSP directives
+  - CORS with allowed origins from `FRONTEND_ORIGIN`; non-browser calls allowed
+  - `fastify-raw-body` only for routes that need raw body (`config.rawBody: true`)
+  - JWT plugin
+  - error handler and auth plugin
+- Route prefixes:
+  - `/api/stores` -> `store.ts`
+  - `/api/menu` -> `menu.ts`
+  - `/api/orders` -> `order.ts`
+  - `/api/webhooks` -> `webhook.ts`
+  - `/api/admin/auth` -> `adminAuth.ts`
+  - `/api/admin` -> `adminDashboard.ts`
+- Health: `GET /health -> { status: 'ok' }`
+- Starts maintenance interval every 5 minutes:
+  - If Razorpay keys exist, calls `reconcilePendingPayments()` first, then `expireOldPendingOrders()`.
+  - Otherwise only expires old pending orders.
+  - Also runs once on startup.
+
+### `plugins/auth.ts`
+- `authenticate` reads `Authorization: Bearer <jwt>`, verifies JWT, loads assigned store IDs from DB, and attaches `request.admin = { id, email, role, storeIds }`.
+- Routes import `authenticate` directly.
+
+### `plugins/abuseProtection.ts`
+- In-memory checkout guard for public checkout/verify.
+- Limits per 60 seconds:
+  - IP: 20
+  - phone: 6
+  - device: 12
+- Uses hashed keys and `X-Device-Id` header.
+- Production multi-instance deployments should replace this with Redis/shared rate limiter.
+
+### `plugins/errorHandler.ts`
+- Handles Prisma known errors (notably unique/not-found) and general errors. Check this file before changing error response shapes.
+
+---
+
+## 8. API Contract (Current)
+
+All successful route handlers generally return `{ success: true, data: ... }` except health and file downloads.
+
+### Public APIs
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/stores` | List stores, sorted with open+accepting stores first. |
+| GET | `/api/menu/:storeId` | Public menu for one store, available items only, grouped categories plus virtual `Most loved`. Returns store too. |
+| POST | `/api/orders/create` | Online checkout. Requires `Idempotency-Key` UUID header and body with store/customer/items. Creates pending order + Razorpay order. |
+| GET | `/api/orders/status/:orderId?token=<customerAccessToken>` | Customer-visible order/receipt status. Requires token. Includes store and item snapshots. |
+| POST | `/api/orders/verify` | Client-side Razorpay signature verification fallback. Requires checkout abuse guard. |
+| POST | `/api/webhooks/razorpay` | Razorpay webhook with raw body signature verification and payment event dedupe. |
+
+### Admin auth APIs
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/admin/auth/login` | `{ email, password }` -> `{ token, admin }` with 7-day JWT. |
+| GET | `/api/admin/auth/me` | Current authenticated admin from token + store IDs. |
+
+### Admin dashboard APIs (Bearer JWT)
+| Method | Path | Role/access | Purpose |
+|---|---|---|---|
+| PATCH | `/api/admin/stores/:storeId/status` | assigned store | Update `isOpen` and/or `acceptingOrders`. |
+| POST | `/api/admin/orders/instore` | assigned store | Create paid in-store order (`PAID`, `INSTORE`) without Razorpay. |
+| GET | `/api/admin/orders?storeId=&status=&statuses=&page=&limit=` | assigned store | Paginated order list. `statuses` supports comma-separated statuses. |
+| POST | `/api/admin/orders/sync?storeId=` | assigned store | Apply buffered status updates and return updated orders since optional `lastSync`. |
+| GET | `/api/admin/orders/new?storeId=&after=` | assigned store | Orders created after timestamp or last 5 minutes. |
+| POST | `/api/admin/stock` | assigned store of item | Update stock by `{ itemId, stock }`. |
+| GET | `/api/admin/menu/:storeId` | assigned store | Full admin menu, flattened `categoryName`, numeric prices/GST. |
+| POST | `/api/admin/items` | SUPER_ADMIN | Create menu item. |
+| PUT | `/api/admin/items` | SUPER_ADMIN | Update menu item fields. Category change is not included in update schema. |
+| DELETE | `/api/admin/items/:itemId` | SUPER_ADMIN | Delete menu item. |
+| GET | `/api/admin/categories` | SUPER_ADMIN | List categories. |
+| GET | `/api/admin/admins` | SUPER_ADMIN | List staff/admin users with assigned stores. |
+| POST | `/api/admin/admins` | SUPER_ADMIN | Create admin/staff with role and store assignments. |
+| DELETE | `/api/admin/admins/:adminId` | SUPER_ADMIN | Delete admin; cannot delete self. |
+| GET | `/api/admin/bestsellers?storeId=&days=` | SUPER_ADMIN | Top 10 sold items; `days=0` means all time. |
+| GET | `/api/admin/payment-summary?storeId=&days=` | SUPER_ADMIN | Paid totals grouped by `ONLINE` vs `INSTORE`. |
+| GET | `/api/admin/export/daily?storeId=&date=` | SUPER_ADMIN | Downloads Excel `.xlsx` daily sales report. |
+
+### Store access enforcement
+- `SUPER_ADMIN` can access all stores.
+- `MANAGER` can access only stores in `request.admin.storeIds`.
+- Store access is enforced per route in `adminDashboard.ts`.
+
+---
+
+## 9. Backend Services and Algorithms
+
+### GST calculation — `server/src/utils/gstCalc.ts`
+Function: `calculateGstFromInclusive(items)`
+- Input: `[{ inclusivePrice, quantity, gstRate }]`
+- For each line:
+  - `lineTotal = inclusivePrice * quantity`
+  - `lineBase = lineTotal / (1 + gstRate / 100)`
+  - `lineGst = lineTotal - lineBase`
+  - CGST = `lineGst / 2`, SGST = `lineGst / 2`
+- Returns rounded `{ subtotal, cgstAmount, sgstAmount, total }`.
+- Frontend cart totals duplicate this logic in `useCartStore.getTotals()`. Keep both aligned.
+
+### Order number — `server/src/utils/orderNumber.ts`
+- Time zone: `Asia/Kolkata`.
+- Format: `R-YYMMDD-XXXX-XXXX`
+  - First 4 digits random.
+  - Last 4 digits are atomic daily sequence from `DailyOrderSequence.nextValue`.
+- Throws if daily sequence exceeds 9999.
+
+### Online order creation — `server/src/services/orderService.ts`
+Main function: `createPendingOrder(storeId, phone, name, message, cartItems, idempotencyKey)`
+1. Calls internal `createOrderWithStock` inside Prisma transaction with `Serializable` isolation.
+2. Normalizes duplicate item IDs by summing quantity.
+3. Enforces max distinct items = 30 and quantity 1..20 per line from route schema.
+4. Loads items for the selected store; rejects missing, unavailable, wrong-store, out-of-stock, or insufficient stock.
+5. Decrements stock using conditional `updateMany` (`stock >= quantity`) to protect from races.
+6. Calculates GST-inclusive totals.
+7. Generates order number.
+8. Creates `Order` with `paymentStatus=PENDING`, `paymentMethod=ONLINE`, `idempotencyKey`, line item snapshots.
+9. Commits DB transaction.
+10. Creates Razorpay order outside DB transaction.
+11. If Razorpay order creation fails, calls `failOrder(order.id)` to restore stock and mark FAILED.
+12. Updates order with `razorpayOrderId`.
+
+### In-store order creation — `createInstoreOrder(...)`
+- Uses same stock validation/deduction path as online orders.
+- Creates order with `paymentStatus=PAID`, `paymentMethod=INSTORE`, `createdByAdminId`.
+- No Razorpay call.
+- Sends SMS if configured.
+- Returns full order for admin print/use.
+
+### Mark paid — `markOrderPaid(razorpayOrderId, razorpayPaymentId)`
+- Transactional and idempotent.
+- If order already `PAID`, returns current paid order.
+- Uses guarded update from `PENDING` -> `PAID` to avoid duplicate webhook/client races.
+- Saves `razorpayPaymentId` and includes store/items.
+- Sends MSG91 SMS after payment is marked paid.
+
+### Fail/expire order — `failOrder(orderIdOrRazorpayId)` and `expireOldPendingOrders()`
+- `failOrder` finds a pending order by internal order ID or Razorpay order ID.
+- Marks `FAILED` only if current status is `PENDING`.
+- Restores stock for every order item.
+- `expireOldPendingOrders` finds online pending orders older than 15 minutes and fails/restores them.
+
+### Payment service — `paymentService.ts`
+- Lazy initializes Razorpay client using env keys.
+- Creates Razorpay orders in paise.
+- Verifies webhook signatures using raw body and `RAZORPAY_WEBHOOK_SECRET`.
+- Creates dedupe keys from raw body SHA256.
+- Records payment events in `PaymentEvent` with unique `dedupeKey`; duplicates are treated as already received.
+- Supports fetch order payments/payment/refund methods used by reconciliation.
+
+### Reconciliation — `paymentReconciliation.ts`
+- Finds old pending orders with Razorpay order IDs.
+- Fetches Razorpay order payments.
+- If a captured payment exists, calls `markOrderPaid`.
+- Idempotent due to `markOrderPaid` safeguards.
+
+### SMS — `smsService.ts`
+- Uses MSG91 Flow API when `MSG91_AUTHKEY` exists.
+- If auth key is missing, logs/skips rather than failing order flow.
+
+### Export — `exportService.ts`
+- Generates Excel workbook with daily sales data for paid orders by store/date.
+- Includes order number, time, item, quantity, prices, CGST, SGST, total.
+
+---
+
+## 10. Frontend Routing
+
+Defined in `client/src/App.tsx`:
+
+| Route | Component | Notes |
+|---|---|---|
+| `/` | `StoreSelector` or `MenuPage` | If `selectedStore` exists, show menu; otherwise store selector. |
+| `/checkout` | `CheckoutPage` | Requires selected store and non-empty cart; else redirects `/`. |
+| `/success/:orderId` | `OrderSuccess` | Requires `?token=<customerAccessToken>`. |
+| `/admin/login` | `AdminLogin` | Public admin login. |
+| `/admin/*` | `ProtectedRoute` -> lazy `AdminDashboard` | Requires JWT token in admin store. |
+| `*` | redirect `/` | Catch-all. |
+
+`Header` is always rendered but hides itself for admin routes.
+
+---
+
+## 11. Frontend State Stores
+
+### `useStoreStore.ts`
+- Persist key: `quickbite-store`.
+- State: `selectedStore`.
+- Actions: `setSelectedStore`, `clearStore`.
+
+### `useCartStore.ts`
+- Persist key: `quickbite-cart`.
+- State:
+  - `storeId`
+  - `items`
+  - `checkoutIdempotencyKey`
+- Important behavior:
+  - `setStoreId(id)` clears cart and checkout idempotency key if the store changes.
+  - `addItem/updateQuantity` cap item quantity to `min(maxStock, 20)`.
+  - Any cart mutation clears `checkoutIdempotencyKey` so a changed cart gets a new idempotent checkout.
+  - `getOrCreateCheckoutIdempotencyKey()` generates UUID and persists it until cart changes/clears.
+  - `getTotals()` reverse-calculates base/tax from GST-inclusive item prices.
+
+### `useAdminStore.ts`
+- Persist key: check file before changing (admin JWT/admin profile persistence).
+- Stores JWT token and admin profile.
+- `api.ts` reads token from here and adds `Authorization` header.
+- `logout()` clears auth and is called automatically on admin 401 responses.
+
+### `useAdminCacheStore.ts`
+- Persist key: `rolls-admin-cache`, version 2.
+- Caches:
+  - `ordersCache` in runtime state but **not persisted** because it contains customer PII/payment/order info.
+  - `menuCache` persisted.
+  - `bestsellersCache` persisted.
+  - `autoSyncInterval`, `lastSync`, `pendingOrderUpdates` persisted.
+- Hard cache expiry: 6 hours.
+- Typical soft staleness thresholds in components:
+  - Orders: 5 min
+  - Menu/Stock: 10 min
+  - Reports: 5 min
+- Has helpers for optimistic stock/menu/availability edits and pending order status updates.
+
+### `useCustomerOrdersStore.ts`
+- Persist key: `rolls-customer-orders`.
+- Holds completed customer orders locally for 24h.
+- Drives green success banner and “Your Orders (Last 24 Hours)” on `StoreSelector`.
+- Stores `customerAccessToken` with each order so receipt link works from local history.
+- Purges stale orders when adding a new order.
+
+---
+
+## 12. Frontend Libraries and Helpers
+
+### `lib/api.ts`
+- Axios instance base URL: `VITE_API_URL || '/api'`.
+- Adds admin bearer token if available.
+- Adds generated `X-Device-Id` stored in localStorage key `rolls-device-id`.
+- On 401 for `/admin...` URLs, logs out and redirects to `/admin/login`.
+
+### `lib/razorpay.ts`
+- Dynamically loads `https://checkout.razorpay.com/v1/checkout.js` with id `razorpay-script`.
+- `openRazorpayCheckout` opens Razorpay with Roll's & Co. branding.
+- `modal.ondismiss` triggers caller's failure/polling path.
+
+### `lib/utils.ts`
+- `cn()` combines `clsx` and `tailwind-merge`.
+- `formatPrice()` renders INR currency.
+- `formatPhone()` strips non-digits and takes the last 10 digits.
+
+### `lib/thermalPrint.ts`
+- Generates popup print windows with inline HTML/CSS for thermal printer sizes.
+- Functions:
+  - `openChefBillPrint(order, storeName, storeAddress)` — kitchen copy, no prices.
+  - `openMultipleChefBillPrint(orders, storeName, storeAddress)` — batch print new chef copies to avoid popup blockers.
+  - `openCustomerBillPrint(order, storeName, storeAddress)` — customer GST bill.
+  - `downloadBillHtml(order, storeName, storeAddress)` — downloadable HTML bill.
+
+### `components/CustomerBill.tsx`
+- Also exports `openCustomerBillPrint` and `downloadBillHtml` used by checkout/store selector/success page.
+- Generates customer-facing GST invoice and supports auto-print.
+
+---
+
+## 13. Customer Feature / Component Details
+
+### `StoreSelector.tsx`
+- Fetches `/api/stores`.
+- Sorts open+accepting stores first.
+- Shows brand hero cards with images and taglines.
+- Disables closed/paused stores.
+- On selection:
+  - `setSelectedStore(store)`
+  - `useCartStore.setStoreId(store.id)`
+  - navigates `/` (which then renders `MenuPage`)
+- Shows order success banner for the last order added to `useCustomerOrdersStore`.
+- Shows “Your Orders (Last 24 Hours)” list with order number, payment status, store, first 3 item lines, total, bill and receipt buttons.
+
+### `MenuPage.tsx`
+- On selected store:
+  - calls `setStoreId(selectedStore.id)` to scope cart.
+  - fetches `/api/menu/:storeId`.
+  - if returned store is closed/not accepting, clears cart + store and returns to StoreSelector.
+- Category ordering priority:
+  1. Most loved
+  2. Roll
+  3. Burger
+  4. Combo
+  5. Beverage
+  6. Extra
+  7. other
+- It removes server-provided “Most loved” category then rebuilds it from `isBestseller` items to avoid duplication.
+- Uses `IntersectionObserver` to highlight active category.
+- Uses `CategoryNav`, `MenuItemCard`, `CartDrawer`, `MobileCart`.
+
+### `MenuItemCard.tsx`
+- Shows item image, name, description, price, bestseller/low-stock/out-of-stock state.
+- Uses cart store to add/update quantity.
+- Cannot add beyond current stock known by menu item.
+
+### `CategoryNav.tsx`
+- Sticky horizontal/flex category pill navigation.
+- Works with click-to-scroll from parent.
+
+### `CartDrawer.tsx`
+- Desktop cart sidebar.
+- Shows line items, quantity controls, totals (subtotal excl tax, CGST, SGST, total), and checkout button.
+- Quantity increase capped at `min(maxStock, 20)`.
+
+### `MobileCart.tsx`
+- Fixed mobile bottom cart summary.
+- Shows count/item summary/total and navigates to checkout.
+
+### `CheckoutPage.tsx`
+- Requires cart and selected store.
+- Collects:
+  - phone required, 10 digits
+  - name optional
+  - preparation note optional, UI max 200 chars (server allows 500)
+- Calls `POST /orders/create` with `Idempotency-Key` header.
+- If response says `PAID` from retry, fetches status and completes without Razorpay.
+- Otherwise opens Razorpay.
+- Success flow:
+  1. Polls `/orders/status/:orderId?token=...`.
+  2. If not paid, posts `/orders/verify` with Razorpay signature.
+  3. Fetches status again.
+  4. On `PAID`: clears cart, caches order, downloads bill, clears selected store, navigates `/`.
+- Dismiss/failure flow:
+  - Waits 3s, polls status; if still not paid, shows refund assurance error.
+
+### `OrderSuccess.tsx`
+- Uses `orderId` route param and `token` query param.
+- Fetches `/orders/status/:orderId?token=...`.
+- Auto-prints customer bill after 1.5s when order loads.
+- Shows order number, 5–10 min prep estimate, item/GST breakdown, pickup/store info, preparation note, print/download actions.
+
+### `Header.tsx`
+- Hidden on admin routes.
+- Shows brand, selected store, cart icon/count.
+- Store name can be clicked to change store; this clears selected store and cart.
+
+---
+
+## 14. Admin Feature / Component Details
+
+### `AdminLogin.tsx`
+- Dark login UI.
+- Calls `/api/admin/auth/login`.
+- Saves `token` and `admin` into `useAdminStore`.
+- Redirects to `/admin` after login.
+
+### `ProtectedRoute.tsx`
+- If no token, redirects to `/admin/login` and preserves location state.
+
+### `AdminDashboard.tsx`
+- Shell layout with desktop sidebar and mobile overlay nav.
+- Loads all stores via `/api/stores`, then filters store select by role.
+- Tabs:
+  - `instoreOrder` -> `AdminCreateOrder`
+  - `orders` -> `AdminOrders`
+  - `stock` -> `AdminStock`
+  - `menu` -> `AdminMenu` (Super Admin only)
+  - `reports` -> `AdminReports` (Super Admin only)
+  - `staff` -> lazy `AdminStaff` (Super Admin only)
+- Always displays `StoreStatusControls` for current selected store.
+- Clear Cache button calls `useAdminCacheStore.invalidateAll()` and reloads.
+
+### `StoreStatusControls.tsx`
+- Calls `PATCH /api/admin/stores/:storeId/status`.
+- Can toggle `isOpen` (store open/closed) and `acceptingOrders` (pause/accept new customer orders).
+- Shows current customer availability status.
+
+### `AdminCreateOrder.tsx`
+- Admin/counter order entry tab.
+- Fetches `/admin/menu/:storeId`, filters available items.
+- Client-side cart with category scroll navigation and stock caps.
+- Requires 10-digit phone and non-empty cart.
+- Posts `/admin/orders/instore`.
+- Server creates a paid instore order, decrements stock, sends SMS if configured.
+- On success:
+  - invalidates orders/menu/bestsellers cache
+  - locally decrements displayed stock
+  - optionally auto-prints customer copy using thermal print
+  - clears cart/customer form
+- Auto-print setting key: `rolls-auto-print-customer` (default true).
+
+### `AdminOrders.tsx`
+- Loads orders cache-first, then server.
+- Filter supports multiple statuses via `statuses=CREATED,PROCESSING`.
+- Status changes are optimistic and stored in local `pendingUpdates` plus persisted `pendingOrderUpdates`.
+- Sync button:
+  - POSTs `/admin/orders/sync` with pending updates and optional `lastSync`.
+  - Clears pending updates after successful push.
+  - Fetches full orders afterwards.
+- Auto-sync intervals: manual / 1 min / 3 min / 5 min. Setting persists.
+- Offline behavior: if fetch fails and cache exists, shows cached orders and offline badge.
+- Chef thermal auto-print:
+  - Tracks seen order IDs after first load.
+  - New paid orders are printed automatically if setting enabled.
+  - Multiple new orders print in one popup via `openMultipleChefBillPrint`.
+  - Setting key: `rolls-auto-print-chef` (default true).
+- Each order row includes `BillPrint` controls and expandable item details/prep note.
+
+### `BillPrint.tsx`
+- Admin-side print button/component.
+- Opens thermal print windows for chef/customer copies as implemented in component.
+- Used inside `AdminOrders` order rows.
+
+### `AdminStock.tsx`
+- Cache-first loads admin menu and maps to stock rows.
+- Shows low stock badge when stock <= 5.
+- Allows stock input per item and save.
+- On save:
+  - Optimistically updates UI and `menuCache`.
+  - POSTs `/admin/stock`.
+  - If failure, shows alert and offline badge; current code does not automatically queue stock updates for later server sync.
+
+### `AdminMenu.tsx`
+- Super Admin only.
+- Cache-first loads `/admin/menu/:storeId` and `/admin/categories`.
+- Supports filters: All, Available, Hidden, and by category.
+- Add item:
+  - POST `/admin/items`
+  - fields: name, category, GST-inclusive price, stock, GST rate, HSN, description, image URL, Most loved, Available
+- Edit item:
+  - PUT `/admin/items`
+  - category selector disabled while editing; backend update schema does not accept category changes.
+- Toggle availability:
+  - Optimistically changes UI/cache and PUTs `isAvailable`.
+  - Reverts on failure.
+- Delete item:
+  - DELETE `/admin/items/:itemId` after confirm.
+- Note: if a newly created item from backend lacks flattened `categoryName`, UI may rely on refresh/cache details. Check when modifying add flow.
+
+### `AdminReports.tsx`
+- Super Admin only.
+- Date picker downloads Excel from `/admin/export/daily`.
+- Range selector (`days=1,7,30,0`) controls both bestsellers and payment collection.
+- Bestsellers use cache-first via `bestsellersCache`.
+- Payment collection calls `/admin/payment-summary` live and shows:
+  - online amount/orders
+  - instore amount/orders
+  - total amount/orders
+
+### `AdminStaff.tsx`
+- Super Admin only.
+- Loads `/admin/admins` and `/stores`.
+- Can create staff/admin with name, email, password, role, and assigned stores.
+- Can delete admins except backend prevents deleting current user.
+
+---
+
+## 15. Printing and Billing
+
+### Chef copy
+- No prices.
+- Shows store, order number, date/time, phone/name, payment method/status, item names/quantities, prep note, prep instruction.
+- Used for kitchen thermal printer.
+
+### Customer bill
+- Shows GST invoice style details.
+- Uses order snapshot line fields:
+  - `unitPrice`: inclusive unit price
+  - `totalPrice`: inclusive line total
+  - `basePrice/baseTotal/gstRate`: tax records if needed
+- Computes subtotal as `total - cgstAmount - sgstAmount` when rendering.
+- Downloaded as `.html` by `downloadBillHtml`.
+
+### Auto-print behavior
+- Customer success page auto-prints after 1.5s.
+- Admin new paid orders can auto-print chef copy.
+- Admin instore orders can auto-print customer copy.
+- Print functions rely on `window.open`; popup blockers can affect printing.
+
+---
+
+## 16. Payment Flow Details
+
+### Online checkout route input
+`POST /api/orders/create`
+
+Header:
+```http
+Idempotency-Key: <uuid>
+```
+
+Body:
+```json
+{
+  "storeId": "uuid",
+  "customerPhone": "10-digit Indian mobile",
+  "customerName": "optional",
+  "customerMessage": "optional",
+  "items": [{ "id": "item uuid", "quantity": 1 }]
+}
+```
+
+Response data includes:
+```json
+{
+  "orderId": "uuid",
+  "orderNo": "R-YYMMDD-1234-0001",
+  "accessToken": "uuid",
+  "paymentStatus": "PENDING",
+  "razorpayOrderId": "order_xxx",
+  "amount": 12000,
+  "keyId": "rzp_test_xxx",
+  "currency": "INR"
+}
+```
+
+### Idempotency behavior
+- Same idempotency key + same cart/store/phone returns existing order payload.
+- Same key with different cart/store/phone returns 409.
+- Existing failed order returns 409 asking to start new checkout.
+- Race on Prisma unique (`P2002`) is handled by fetching the raced order and returning it if valid.
+
+### Payment success paths
+- Primary: Razorpay webhook `payment.captured` or `order.paid` calls `markOrderPaid`.
+- Fallback: client calls `/orders/verify`, server verifies signature, calls `markOrderPaid`, records `PaymentEvent` with dedupe key `client-verification:<paymentId>`.
+
+### Webhook behavior
+- Raw body required for signature verification.
+- Missing/invalid configuration or signature returns 400.
+- After event parsing/recording, duplicate payment events are deduped via `PaymentEvent.dedupeKey`.
+- On known payment success events, calls `markOrderPaid`.
+- On failure events, calls `failOrder`.
+- Processing errors are logged and route returns 200 to avoid repeated Razorpay retries.
+
+---
+
+## 17. Security and Reliability Notes
+
+- **Server-side pricing:** never trust client totals.
+- **Serializable stock transaction:** protects concurrent stock decrement.
+- **Conditional stock update:** ensures stock has not changed under transaction.
+- **Razorpay call outside DB transaction:** avoids holding locks on network call.
+- **Idempotency-Key:** required for online order creation.
+- **CustomerAccessToken:** protects status/receipt from order UUID-only access.
+- **PaymentEvent dedupe:** protects duplicate webhooks/client verification events.
+- **JWT auth:** admin token expires in 7 days.
+- **Role/store authorization:** enforce store access for admin routes.
+- **Checkout abuse guard:** basic in-memory IP/phone/device limiter.
+- **Maintenance timer:** pending payment reconciliation and order expiry are scheduled in-process every 5 minutes.
+
+---
+
+## 18. Known Gaps / Watchouts
+
+- In-memory abuse guard is not shared across multiple server instances. Use Redis/rate-limit service in production.
+- Admin stock/menu offline behavior is optimistic but not fully queued for later sync except order status pending updates.
+- `AdminReports` payment summary is not cached; bestsellers are cached.
+- `AdminMenu` edit cannot change category because update schema and UI disable category changes.
+- Public menu creates virtual `Most loved` on server and client also rebuilds it; client strips any server Most loved first to avoid duplication.
+- `server/.env.example` and `config.ts` still use some `quickbite`/`QUICKB` defaults; branding is otherwise Roll's & Co.
+- README may mention old store names and old route `/api/orders/receipt/:orderNo`; current customer receipt/status route is `/api/orders/status/:orderId?token=...`.
+- Admin bestsellers and payment-summary endpoints require Super Admin in backend; managers cannot access reports.
+- Orders cache is intentionally not persisted in admin cache store due to PII; if code expects persisted order list after reload, it will not exist.
+- `OrderSuccess.tsx` imports print helpers from `components/CustomerBill`; other code may import download helper from the same component while thermal-specific helpers live in `lib/thermalPrint.ts`.
+
+---
+
+## 19. Testing Checklist for Agents
+
+When changing code, verify relevant items:
+
+### Checkout/order/payment
+- [ ] Cart changes reset `checkoutIdempotencyKey`.
+- [ ] Re-click/retry checkout with same unchanged cart reuses idempotency key and returns same pending order.
+- [ ] Client sends no price/total to `/orders/create`.
+- [ ] Server rejects closed or paused stores.
+- [ ] Server rejects out-of-stock/unavailable/wrong-store items.
+- [ ] Stock decrements on pending order creation.
+- [ ] Stock restores on `failOrder`/expiry/payment failure.
+- [ ] Razorpay webhook and `/orders/verify` are idempotent.
+- [ ] `/orders/status/:orderId` fails without the correct `token`.
+
+### GST/billing
+- [ ] Frontend `useCartStore.getTotals()` matches server `calculateGstFromInclusive()`.
+- [ ] OrderItem snapshot fields are populated for online and instore orders.
+- [ ] Customer bill uses inclusive `unitPrice/totalPrice` lines and GST totals.
+- [ ] Chef bill has no prices.
+
+### Admin
+- [ ] Manager sees only New Order, Orders, Stock.
+- [ ] Super Admin sees Menu, Reports, Staff too.
+- [ ] Manager cannot call admin routes for unassigned stores.
+- [ ] Store status controls update `isOpen` and `acceptingOrders` and customer app rejects paused/closed store.
+- [ ] Order status changes are marked unsynced until Sync/Fetch succeeds.
+- [ ] Auto-sync interval persists and works.
+- [ ] In-store order creates `PAID + INSTORE`, decrements stock, invalidates caches, and can print.
+- [ ] Admin Reports payment summary separates `ONLINE` and `INSTORE`.
+- [ ] Staff creation assigns stores correctly; deleting self is blocked by backend.
+
+### UI/cache/offline
+- [ ] Store change clears cart.
+- [ ] Customer recent orders expire after 24h.
+- [ ] Admin menu/stock uses cache when offline.
+- [ ] Orders are not persisted in admin cache after reload.
+- [ ] Force refresh bypasses cache where available.
+
+---
+
+## 20. Brand / UX Constants
+
+- Brand name: **Roll's & Co.**
+- Tagline: **No Empty Bites. Only Loaded Rolls.**
+- Footer phrase: **Wrap. Bite. Repeat.**
+- Primary color: `#E63946` (`brand-500`)
+- Accent color: `#FFC300` (`accent-500`)
+- Default admin credentials from seed: `admin@rollsandco.com` / `admin123`
+- Seed stores: Boring Road and Kankarbagh, Patna
+- Prep estimate shown to customers: 5–10 minutes
+- SMS sender intended: `ROLLCO`
