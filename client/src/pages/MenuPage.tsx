@@ -46,7 +46,10 @@ export default function MenuPage() {
 
         const rawData = (res.data.data?.menu || []) as MenuCategory[];
 
-        const processed = rawData
+        // Remove any existing virtual "Most loved" from server to avoid duplication (we will rebuild fresh)
+        const cleanData = rawData.filter((c) => c.category.toLowerCase() !== 'most loved');
+
+        const processed = cleanData
           .map((cat) => ({
             ...cat,
             items: [...cat.items].sort((a, b) => {
@@ -63,8 +66,25 @@ export default function MenuPage() {
             return a.category.localeCompare(b.category);
           });
 
-        setMenu(processed);
-        if (processed.length > 0) setActiveCategory(processed[0].category);
+        // Build "Most loved" virtual category aggregating all bestseller items
+        const allItems = cleanData.flatMap((c) => c.items);
+        const lovedMap = new Map<string, MenuItem>();
+        allItems.forEach((item) => {
+          if (item.isBestseller) lovedMap.set(item.id, item);
+        });
+        const mostLovedItems = Array.from(lovedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+        let finalMenu: MenuCategory[] = processed;
+        if (mostLovedItems.length > 0) {
+          const mostLovedCategory: MenuCategory = {
+            category: 'Most loved',
+            items: mostLovedItems,
+          };
+          finalMenu = [mostLovedCategory, ...processed];
+        }
+
+        setMenu(finalMenu);
+        if (finalMenu.length > 0) setActiveCategory(finalMenu[0].category);
       })
       .catch(() => setError('Failed to load menu'))
       .finally(() => setLoading(false));
@@ -130,6 +150,7 @@ export default function MenuPage() {
             <div className="space-y-8">
               {menu.map((cat) => {
                 const lovedCount = cat.items.filter((i) => i.isBestseller).length;
+                const isMostLovedCat = cat.category === 'Most loved';
                 return (
                   <section
                     key={cat.category}
@@ -138,9 +159,14 @@ export default function MenuPage() {
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-gray-900">{cat.category}</h2>
-                        {lovedCount > 0 && (
+                        <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                          {isMostLovedCat && <span className="text-accent-500">🔥</span>} {cat.category}
+                        </h2>
+                        {!isMostLovedCat && lovedCount > 0 && (
                           <span className="text-[10px] font-bold bg-accent-500 text-black px-2 py-0.5 rounded-full">Most loved • {lovedCount}</span>
+                        )}
+                        {isMostLovedCat && (
+                          <span className="text-[10px] font-bold bg-black text-white px-2 py-0.5 rounded-full">{cat.items.length} favourites</span>
                         )}
                       </div>
                       <span className="text-xs text-gray-500">{cat.items.length} items</span>

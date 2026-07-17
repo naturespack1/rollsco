@@ -36,7 +36,7 @@ export default async function menuRoutes(app: FastifyInstance) {
         })),
     }));
 
-    const menuMap = menuMapRaw
+    const menuMapWithoutLoved = menuMapRaw
       .filter((m) => m.items.length > 0)
       .sort((a, b) => {
         const aLoved = a.items.filter((i: any) => i.isBestseller).length;
@@ -46,11 +46,34 @@ export default async function menuRoutes(app: FastifyInstance) {
       })
       .map(({ sort, ...rest }) => rest);
 
+    // Create virtual "Most loved" category as 1st
+    const mostLovedItems = items
+      .filter((i) => i.isBestseller)
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        description: i.description,
+        price: i.price.toNumber(),
+        stock: i.stock,
+        imageUrl: i.imageUrl,
+        isBestseller: i.isBestseller,
+        gstRate: i.gstRate.toNumber(),
+        hsnCode: i.hsnCode,
+        categoryId: i.categoryId,
+        storeId: i.storeId,
+      }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+    let finalMenu = menuMapWithoutLoved;
+    if (mostLovedItems.length > 0) {
+      finalMenu = [{ category: 'Most loved', items: mostLovedItems } as any, ...menuMapWithoutLoved];
+    }
+
     return {
       success: true,
       data: {
         store,
-        menu: menuMap,
+        menu: finalMenu,
       },
     };
   });
