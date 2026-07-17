@@ -68,7 +68,7 @@ export async function openRazorpayCheckout({
     amount,
     currency,
     order_id: orderId,
-      name: 'Rolls & Co.',
+      name: "Roll's & Co.",
     description: 'Order Payment',
     prefill: { name: customerName || '', contact: customerPhone },
     handler: (response) => {

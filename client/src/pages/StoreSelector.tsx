@@ -85,7 +85,7 @@ export default function StoreSelector() {
               <div>
                 <h3 className="font-bold text-white text-[15px] tracking-tight">Order Placed!</h3>
                 <p className="text-[11px] text-white/80 mt-1">
-                  SMS sent to <span className="font-bold text-white">{lastOrder.customerPhone}</span> • Pickup at {lastOrder.store?.name || 'Rolls & Co.'}
+                  SMS sent to <span className="font-bold text-white">{lastOrder.customerPhone}</span> • Pickup at {lastOrder.store?.name || "Roll's & Co." }
                 </p>
               </div>
             </div>
@@ -132,7 +132,7 @@ export default function StoreSelector() {
                   Your order will be ready in <span className="font-bold text-amber-700">5-10 minutes</span>. Please make yourself available to collect your order.
                 </p>
                 <p className="text-[11px] text-gray-600 mt-1 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {lastOrder.store?.name || 'Rolls & Co.'} • Show {lastOrder.orderNo} at counter
+                  <MapPin className="w-3 h-3" /> {lastOrder.store?.name || "Roll's & Co." } • Show {lastOrder.orderNo} at counter
                 </p>
               </div>
             </div>
@@ -153,7 +153,7 @@ export default function StoreSelector() {
       <div className="mb-8">
         <div className="text-center mb-6">
           <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight mb-2">
-            Rolls & Co. <span className="text-brand-600">Pickup</span>
+            Roll's & Co. <span className="text-brand-600">Pickup</span>
           </h1>
           <p className="text-[15px] font-bold tracking-tight text-brand-600">No Empty Bites. Only Loaded Rolls.</p>
           <p className="text-gray-500 text-xs mt-1">Fresh food. Fast pickup. Zero wait.</p>
@@ -247,7 +247,7 @@ export default function StoreSelector() {
                   <span className="text-xs text-gray-400">{new Date(order.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</span>
                 </div>
 
-                <div className="text-xs text-gray-500 mb-3">{order.store?.name || 'Rolls & Co.'}</div>
+                <div className="text-xs text-gray-500 mb-3">{order.store?.name || "Roll's & Co." }</div>
 
                 <div className="space-y-1.5 mb-3">
                   {order.items?.slice(0, 3).map((item: any, idx: number) => (

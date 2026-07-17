@@ -1,4 +1,4 @@
-# Rolls & Co. — Restaurant Ordering System
+# Roll's & Co. — Restaurant Ordering System
 
 A **mobile-first PWA** for pickup-only restaurant ordering. Built with React + Fastify + PostgreSQL + Prisma + Razorpay + MSG91.
 
@@ -103,7 +103,7 @@ npm run db:seed
 ```
 
 This creates:
-- 2 stores: **Rolls & Co. Koramangala**, **Rolls & Co. HSR Layout**
+- 2 stores: **Roll's & Co. Koramangala**, **Roll's & Co. HSR Layout**
 - 12 items + 2 combos across 5 categories
 - 1 admin user: `admin@rollsandco.com` / `admin123` (Super Admin)
 
@@ -266,7 +266,7 @@ Then restart the server.
 
 ## License
 
-Private — for Rolls & Co. internal use.
+Private — for Roll's & Co. internal use.
 
 
 # Reset database with new schema

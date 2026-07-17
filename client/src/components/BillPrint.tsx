@@ -1,6 +1,6 @@
 import { Printer } from 'lucide-react';
 import type { Order } from '@/types';
-import { openChefBillPrint, openCustomerBillPrint } from '@/lib/thermalPrint';
+import { openChefBillPrint, openCustomerBillPrint, openMultipleChefBillPrint } from '@/lib/thermalPrint';
 
 interface BillPrintProps {
   order: Order;
@@ -30,4 +30,4 @@ export default function BillPrint({ order, storeName, storeAddress }: BillPrintP
 }
 
 // Re-export for convenience
-export { openChefBillPrint, openCustomerBillPrint };
+export { openChefBillPrint, openCustomerBillPrint, openMultipleChefBillPrint };

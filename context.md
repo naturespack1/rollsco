@@ -1,6 +1,6 @@
-# Rolls & Co. — Full Context for AI Agents
+# Roll's & Co. — Full Context for AI Agents
 
-> **Project**: Rolls & Co. Restaurant Ordering System  
+> **Project**: Roll's & Co. Restaurant Ordering System  
 > **Type**: Full-stack monorepo (React SPA + Fastify API + PostgreSQL)  
 > **Architecture**: Single-page application (SPA) with lazy-loaded admin dashboard  
 > **Business**: Pickup-only restaurant ordering with Razorpay payments, GST invoicing, SMS receipts, and multi-store admin dashboard.
@@ -68,7 +68,7 @@ restaurant-app/
 │   ├── index.html
 │   ├── vite.config.ts           # PWA plugin, proxy /api → localhost:3000, manualChunks for admin
 │   ├── public/
-│   │   ├── manifest.json        # "Rolls & Co.", standalone, theme_color: #f97316
+│   │   ├── manifest.json        # "Roll's & Co.", standalone, theme_color: #f97316
 │   │   ├── icons/               # 192x192, 512x512
 │   │   └── images/              # rolls.jpg, burgers.jpg, beverages.jpg, extras.jpg, combos.jpg
 │   └── src/
@@ -344,9 +344,9 @@ When modifying code, verify:
 
 ## 10. Brand Identity
 
-- **Name**: Rolls & Co.
+- **Name**: Roll's & Co.
 - **Default Admin**: `admin@rollsandco.com` / `admin123`
-- **Stores**: "Rolls & Co. Koramangala", "Rolls & Co. HSR Layout"
+- **Stores**: "Roll's & Co. Koramangala", "Roll's & Co. HSR Layout"
 - **Primary Color**: `#E63946` (Tailwind `brand-500` / red)
 - **Accent Color**: `#FFC300` (Tailwind `accent-500` / yellow)
 - **Theme Color**: `#E63946`

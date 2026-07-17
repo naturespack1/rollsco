@@ -13,10 +13,10 @@ async function main() {
   await prisma.store.deleteMany();
 
   const store1 = await prisma.store.create({
-    data: { name: 'Rolls & Co. Boring Road', address: 'Boring Road, Patna', isOpen: true, acceptingOrders: true }
+    data: { name: "Roll's & Co. Boring Road", address: 'Boring Road, Patna', isOpen: true, acceptingOrders: true }
   });
   const store2 = await prisma.store.create({
-    data: { name: 'Rolls & Co. Kankarbagh', address: 'Kankarbagh, Patna', isOpen: true, acceptingOrders: true }
+    data: { name: "Roll's & Co. Kankarbagh", address: 'Kankarbagh, Patna', isOpen: true, acceptingOrders: true }
   });
 
   const admin = await prisma.adminUser.create({

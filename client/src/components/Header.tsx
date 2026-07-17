@@ -40,7 +40,7 @@ export default function Header() {
           >
             <ChefHat className={cn('w-6 h-6', isAdmin ? 'text-brand-400' : 'text-brand-600')} />
             <span className={cn('font-bold text-lg tracking-tight', isAdmin ? 'text-white' : 'text-gray-900')}>
-              Rolls & Co.
+              Roll's & Co.
             </span>
           </div>
         </div>

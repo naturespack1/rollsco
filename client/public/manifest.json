@@ -1,6 +1,6 @@
 {
-  "short_name": "Rolls & Co.",
-  "name": "Rolls & Co. Restaurant",
+  "short_name": "Roll's & Co.",
+  "name": "Roll's & Co. Restaurant",
   "description": "Order rolls, burgers, and beverages for pickup.",
   "start_url": "/",
   "display": "standalone",

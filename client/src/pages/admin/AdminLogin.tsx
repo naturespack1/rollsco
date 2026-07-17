@@ -41,7 +41,7 @@ export default function AdminLogin() {
             <ChefHat className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white">Manager Login</h1>
-          <p className="text-sm text-gray-400 mt-1">Rolls & Co. Manager Dashboard</p>
+          <p className="text-sm text-gray-400 mt-1">Roll's & Co. Manager Dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-gray-800 rounded-2xl p-6 border border-gray-700 space-y-4">

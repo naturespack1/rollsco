@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import type { Order } from '@/types';
 import BillPrint from '@/components/BillPrint';
-import { openChefBillPrint } from '@/lib/thermalPrint';
+import { openChefBillPrint, openMultipleChefBillPrint } from '@/lib/thermalPrint';
 import {
   RefreshCw,
   CheckCircle,
@@ -59,7 +59,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
   const [isOffline, setIsOffline] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [storeName, setStoreName] = useState('Rolls & Co.');
+  const [storeName, setStoreName] = useState("Roll's & Co.");
   const [storeAddress, setStoreAddress] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleSyncRef = useRef<((silent?: boolean) => Promise<void>) | null>(null);
@@ -149,18 +149,18 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
           const toPrint = newOnes.filter((o: Order) => o.paymentStatus === 'PAID');
           if (toPrint.length > 0 && autoPrintChef) {
             setLastNewOrderCount(toPrint.length);
-            // Trigger chef copy print (staggered)
-            toPrint.forEach((order: Order, idx: number) => {
-              setTimeout(() => {
-                try {
-                  openChefBillPrint(order, storeName, storeAddress);
-                } catch (e) {
-                  console.error('Auto chef print failed', e);
-                }
-              }, idx * 800);
-            });
-            // Clear badge after 10s
-            setTimeout(() => setLastNewOrderCount(0), 10000);
+            // Print ALL new orders in ONE thermal job (avoids popup blocker)
+            try {
+              if (toPrint.length === 1) {
+                openChefBillPrint(toPrint[0], storeName, storeAddress);
+              } else {
+                openMultipleChefBillPrint(toPrint, storeName, storeAddress);
+              }
+            } catch (e) {
+              console.error('Auto chef print failed', e);
+            }
+            // Clear badge after 15s
+            setTimeout(() => setLastNewOrderCount(0), 15000);
           }
           // Add new IDs to seen set
           newOnes.forEach((o: Order) => seenOrderIdsRef.current.add(o.id));

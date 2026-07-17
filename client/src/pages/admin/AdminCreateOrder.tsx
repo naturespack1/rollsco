@@ -69,7 +69,7 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [createdOrder, setCreatedOrder] = useState<CreatedInstoreOrder | null>(null);
-  const [storeName, setStoreName] = useState('Rolls & Co.');
+  const [storeName, setStoreName] = useState("Roll's & Co.");
   const [storeAddress, setStoreAddress] = useState('');
   const [autoPrintCustomer, setAutoPrintCustomer] = useState(() => {
     if (typeof window !== 'undefined') {
