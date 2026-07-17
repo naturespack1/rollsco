@@ -15,6 +15,7 @@ import {
 import { api } from '@/lib/api';
 import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import { cn, formatPhone, formatPrice } from '@/lib/utils';
+import { openCustomerBillPrint } from '@/lib/thermalPrint';
 
 const ADMIN_SCROLL_OFFSET = 80; // sticky category bar + small gap
 
@@ -68,6 +69,14 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [createdOrder, setCreatedOrder] = useState<CreatedInstoreOrder | null>(null);
+  const [storeName, setStoreName] = useState('Rolls & Co.');
+  const [storeAddress, setStoreAddress] = useState('');
+  const [autoPrintCustomer, setAutoPrintCustomer] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('rolls-auto-print-customer') !== 'false';
+    }
+    return true;
+  });
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const isScrolling = useRef(false);
 
@@ -100,6 +109,24 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
 
     return () => { isCurrent = false; };
   }, [storeId]);
+
+  // Fetch store name/address for thermal printing
+  useEffect(() => {
+    api.get('/stores').then((res) => {
+      const stores = res.data.data || [];
+      const s = stores.find((st: any) => st.id === storeId);
+      if (s) {
+        setStoreName(s.name);
+        setStoreAddress(s.address || '');
+      }
+    }).catch(() => {});
+  }, [storeId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rolls-auto-print-customer', String(autoPrintCustomer));
+    }
+  }, [autoPrintCustomer]);
 
   const categories = useMemo(
     () => Array.from(new Set(menuItems.map((item) => item.categoryName))),
@@ -219,7 +246,7 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
         customerMessage: message.trim() || undefined,
         items: cart.map((item) => ({ id: item.id, quantity: item.quantity })),
       });
-      const order = response.data.data as CreatedInstoreOrder;
+      const order = response.data.data as any;
 
       setCreatedOrder(order);
       useAdminCacheStore.getState().invalidateOrders();
@@ -229,6 +256,36 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
         const orderedItem = cart.find((cartItem) => cartItem.id === item.id);
         return orderedItem ? { ...item, stock: Math.max(0, item.stock - orderedItem.quantity) } : item;
       }));
+
+      // Thermal auto-print customer copy for instore orders
+      if (autoPrintCustomer) {
+        try {
+          // Ensure order has required fields for thermal print (server returns full order)
+          const printableOrder = {
+            ...order,
+            items: order.items || cart.map((ci) => ({ itemName: ci.name, quantity: ci.quantity, unitPrice: ci.price, totalPrice: ci.price * ci.quantity })),
+            createdAt: order.createdAt || new Date().toISOString(),
+            customerPhone: order.customerPhone || formatPhone(phone),
+            customerName: order.customerName || name,
+            customerMessage: order.customerMessage || message,
+            paymentMethod: 'INSTORE',
+            paymentStatus: 'PAID',
+            total: order.total || totals.total,
+            cgstAmount: order.cgstAmount || totals.cgst,
+            sgstAmount: order.sgstAmount || totals.sgst,
+          } as any;
+          setTimeout(() => {
+            try {
+              openCustomerBillPrint(printableOrder, storeName, storeAddress);
+            } catch (e) {
+              console.error('Auto customer print failed', e);
+            }
+          }, 500);
+        } catch (e) {
+          console.error('Customer auto-print error', e);
+        }
+      }
+
       setCart([]);
       setPhone('');
       setName('');
@@ -455,6 +512,16 @@ export default function AdminCreateOrder({ storeId, onViewOrders }: AdminCreateO
               <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
               This order is saved as <strong className="font-semibold">PAID · INSTORE</strong>. No payment gateway is opened.
             </div>
+
+            <label className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-xs text-gray-200 cursor-pointer hover:bg-gray-750 transition select-none">
+              <input
+                type="checkbox"
+                checked={autoPrintCustomer}
+                onChange={(e) => setAutoPrintCustomer(e.target.checked)}
+                className="rounded border-gray-600 bg-gray-900 text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
+              />
+              <span className="font-medium">Auto-print customer copy on thermal printer</span>
+            </label>
 
             <button
               type="submit"

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import type { Order } from '@/types';
 import BillPrint from '@/components/BillPrint';
+import { openChefBillPrint } from '@/lib/thermalPrint';
 import {
   RefreshCw,
   CheckCircle,
@@ -16,6 +17,7 @@ import {
   Wifi,
   WifiOff,
   AlertCircle,
+  Printer,
 } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
@@ -63,6 +65,23 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
   const handleSyncRef = useRef<((silent?: boolean) => Promise<void>) | null>(null);
   const filterKey = selectedStatuses.length > 0 ? [...selectedStatuses].sort().join(',') : 'ALL';
 
+  // Thermal auto-print: chef copy on new orders after fetch
+  const seenOrderIdsRef = useRef<Set<string>>(new Set());
+  const isFirstLoadRef = useRef(true);
+  const [autoPrintChef, setAutoPrintChef] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('rolls-auto-print-chef') !== 'false'; // default true
+    }
+    return true;
+  });
+  const [lastNewOrderCount, setLastNewOrderCount] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rolls-auto-print-chef', String(autoPrintChef));
+    }
+  }, [autoPrintChef]);
+
   // Cache store
   const cachedOrders = useAdminCacheStore((s) => s.ordersCache);
   const getCachedOrders = useAdminCacheStore((s) => s.getOrdersCache);
@@ -103,7 +122,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
       const res = await api.get('/admin/orders', {
         params: { storeId, statuses: selectedStatuses.length > 0 ? selectedStatuses.join(',') : undefined },
       });
-      const data = res.data.data?.orders || [];
+      const data = res.data.data?.orders || [] as Order[];
       setOrders(data);
       setCachedOrders({
         orders: data,
@@ -117,6 +136,37 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
       setFromCache(false);
       setIsOffline(false);
       setError(null);
+
+      // === Thermal auto-print: detect new orders after fetch ===
+      if (isFirstLoadRef.current) {
+        // First load: just remember all IDs, don't auto-print existing orders
+        seenOrderIdsRef.current = new Set(data.map((o: Order) => o.id));
+        isFirstLoadRef.current = false;
+      } else {
+        const newOnes = data.filter((o: Order) => !seenOrderIdsRef.current.has(o.id));
+        if (newOnes.length > 0) {
+          // Only auto-print PAID orders (new online orders) or all INSTORE orders
+          const toPrint = newOnes.filter((o: Order) => o.paymentStatus === 'PAID');
+          if (toPrint.length > 0 && autoPrintChef) {
+            setLastNewOrderCount(toPrint.length);
+            // Trigger chef copy print (staggered)
+            toPrint.forEach((order: Order, idx: number) => {
+              setTimeout(() => {
+                try {
+                  openChefBillPrint(order, storeName, storeAddress);
+                } catch (e) {
+                  console.error('Auto chef print failed', e);
+                }
+              }, idx * 800);
+            });
+            // Clear badge after 10s
+            setTimeout(() => setLastNewOrderCount(0), 10000);
+          }
+          // Add new IDs to seen set
+          newOnes.forEach((o: Order) => seenOrderIdsRef.current.add(o.id));
+        }
+      }
+
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.message || 'Failed to load orders from server';
       setError(msg);
@@ -128,7 +178,7 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
     } finally {
       setLoading(false);
     }
-  }, [storeId, filterKey, selectedStatuses, isOffline, getCachedOrders, setCachedOrders, isStale]);
+  }, [storeId, filterKey, selectedStatuses, isOffline, getCachedOrders, setCachedOrders, isStale, autoPrintChef, storeName, storeAddress]);
 
   useEffect(() => {
     loadOrders();
@@ -285,6 +335,22 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
               );
             })}
           </div>
+
+          <label className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 cursor-pointer hover:bg-gray-700 transition select-none">
+            <input
+              type="checkbox"
+              checked={autoPrintChef}
+              onChange={(e) => setAutoPrintChef(e.target.checked)}
+              className="rounded border-gray-600 bg-gray-900 text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
+            />
+            <Printer className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-medium">Chef auto-print</span>
+            {lastNewOrderCount > 0 && (
+              <span className="bg-green-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                {lastNewOrderCount} new
+              </span>
+            )}
+          </label>
 
           <select
             value={autoSyncInterval}
