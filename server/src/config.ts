@@ -30,4 +30,11 @@ export const env = {
   // Optional at startup so a missing CORS configuration cannot take down every
   // API route. Set this in production to the deployed frontend origin(s).
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || '',
+  PAYMENT_GATEWAY: (process.env.PAYMENT_GATEWAY === 'razorpay' || process.env.PAYMENT_GATEWAY === 'phonepe') ? process.env.PAYMENT_GATEWAY : 'razorpay',
+  PHONEPE_CLIENT_ID: process.env.PHONEPE_CLIENT_ID || '',
+  PHONEPE_CLIENT_SECRET: process.env.PHONEPE_CLIENT_SECRET || '',
+  PHONEPE_CLIENT_VERSION: parseInt(process.env.PHONEPE_CLIENT_VERSION || '1', 10),
+  PHONEPE_ENV: process.env.PHONEPE_ENV || 'SANDBOX',
+  PHONEPE_SALT_KEY: process.env.PHONEPE_SALT_KEY || '',
+  PHONEPE_SALT_INDEX: process.env.PHONEPE_SALT_INDEX || '1',
 };

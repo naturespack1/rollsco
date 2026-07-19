@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { prisma } from '../prismaClient';
 import { checkoutAbuseGuard } from '../plugins/abuseProtection';
 import { createPendingOrder, markOrderPaid } from '../services/orderService';
-import { recordPaymentEvent } from '../services/paymentService';
+import { recordPaymentEvent, fetchPayment } from '../services/paymentService';
 import { env } from '../config';
 
 const cartSchema = z.object({
@@ -30,17 +30,27 @@ function buildCheckoutPayload(order: {
   paymentStatus: string;
   razorpayOrderId: string | null;
   total: Prisma.Decimal;
-}) {
-  return {
+}, redirectUrl?: string) {
+  const payload: any = {
     orderId: order.id,
     orderNo: order.orderNo,
     accessToken: order.customerAccessToken,
     paymentStatus: order.paymentStatus,
     razorpayOrderId: order.razorpayOrderId,
     amount: Math.round(order.total.toNumber() * 100),
-    keyId: env.RAZORPAY_KEY_ID,
     currency: 'INR',
+    gateway: env.PAYMENT_GATEWAY,
   };
+
+  if (env.PAYMENT_GATEWAY === 'razorpay') {
+    payload.keyId = env.RAZORPAY_KEY_ID;
+    payload.razorpayOrderId = order.razorpayOrderId;
+  } else if (env.PAYMENT_GATEWAY === 'phonepe') {
+    payload.phonepeMerchantTransactionId = order.razorpayOrderId; // reused DB field
+    payload.redirectUrl = redirectUrl;
+  }
+
+  return payload;
 }
 
 function cartMatchesOrder(
@@ -108,7 +118,7 @@ export default async function orderRoutes(app: FastifyInstance) {
       return reply.status(201).send({ success: true, data: buildCheckoutPayload({
         ...result.order,
         razorpayOrderId: result.razorpayOrderId,
-      }) });
+      }, (result as any).redirectUrl) });
     } catch (error: any) {
       // A duplicated request can race before the first transaction commits.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -146,6 +156,41 @@ export default async function orderRoutes(app: FastifyInstance) {
   app.post('/verify', {
     preHandler: [checkoutAbuseGuard],
   }, async (request, reply) => {
+    if (env.PAYMENT_GATEWAY === 'phonepe') {
+      // PhonePe uses redirect + server-side webhook confirmation.
+      // Client should poll /status instead of calling /verify with a signature.
+      const verifySchemaPhonePe = z.object({
+        orderId: z.string().uuid(),
+        merchantTransactionId: z.string().min(1).max(100),
+      });
+      try {
+        const body = verifySchemaPhonePe.parse(request.body);
+        const pendingOrder = await prisma.order.findUnique({ where: { id: body.orderId } });
+        if (!pendingOrder || pendingOrder.razorpayOrderId !== body.merchantTransactionId) {
+          return reply.status(400).send({ success: false, error: 'Transaction does not match this order.' });
+        }
+        // Verify status via PhonePe SDK
+        const statusResponse: any = await fetchPayment(body.merchantTransactionId);
+        const state = statusResponse?.state || statusResponse?.payload?.state || 'UNKNOWN';
+        if (state === 'COMPLETED' || state === 'SUCCESS') {
+          const order = await markOrderPaid(body.merchantTransactionId, body.merchantTransactionId);
+          await recordPaymentEvent({
+            dedupeKey: `client-verification:${body.merchantTransactionId}`,
+            eventType: 'client.payment_verified',
+            razorpayOrderId: body.merchantTransactionId,
+            razorpayPaymentId: body.merchantTransactionId,
+            orderId: order.id,
+            payload: { gateway: 'phonepe', merchantTransactionId: body.merchantTransactionId, state },
+          });
+          return { success: true, data: order };
+        }
+        return reply.status(400).send({ success: false, error: 'Payment has not been completed yet.' });
+      } catch (err: any) {
+        return reply.status(400).send({ success: false, error: err.message || 'PhonePe verification failed.' });
+      }
+    }
+
+    // Razorpay verification flow
     const verifySchema = z.object({
       orderId: z.string().uuid(),
       razorpayPaymentId: z.string().min(1).max(100),

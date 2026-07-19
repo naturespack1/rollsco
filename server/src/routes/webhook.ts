@@ -4,6 +4,7 @@ import {
   markPaymentEventProcessed,
   recordPaymentEvent,
   verifyWebhookSignature,
+  verifyPhonePeWebhookHmac,
 } from '../services/paymentService';
 import { markOrderPaid, failOrder } from '../services/orderService';
 import { env } from '../config';
@@ -74,6 +75,96 @@ export default async function webhookRoutes(app: FastifyInstance) {
       app.log.error(error, 'Razorpay webhook processing failed');
       // Return 5xx for a transient failure so Razorpay retries it. The audit row
       // remains available for a reconciliation worker/manual review.
+      return reply.status(503).send({ success: false, error: 'Webhook processing failed' });
+    }
+  });
+
+  // PhonePe webhook endpoint (HMAC verification with SALT_KEY)
+  app.post('/phonepe', { config: { rawBody: true } }, async (request, reply) => {
+    const rawBody = (request as any).rawBody as Buffer | undefined;
+    const payloadString = rawBody ? rawBody.toString('utf8') : '';
+
+    if (!env.PHONEPE_SALT_KEY) {
+      app.log.error('PhonePe webhook received without configured SALT_KEY');
+      return reply.status(503).send({ success: false, error: 'Webhook temporarily unavailable' });
+    }
+
+    // PhonePe webhook payload contains a `checksum` field computed with HMAC-SHA256.
+    let parsedPayload: any;
+    try {
+      parsedPayload = JSON.parse(payloadString);
+    } catch {
+      return reply.status(400).send({ success: false, error: 'Invalid webhook payload' });
+    }
+
+    const receivedChecksum = parsedPayload?.checksum || '';
+
+    // Verify HMAC: SHA256(payloadString + SALT_KEY) should match `checksum`
+    // Note: PhonePe computes checksum over the payload excluding the checksum field,
+    // but for simplicity we verify against the full payload string. If verification
+    // fails, try removing the checksum key and re-stringify.
+    let hmacValid = false;
+    try {
+      hmacValid = verifyPhonePeWebhookHmac(payloadString, receivedChecksum);
+      if (!hmacValid) {
+        // Try verification with checksum removed from payload
+        const { checksum: _, ...rest } = parsedPayload;
+        const payloadWithoutChecksum = JSON.stringify(rest);
+        hmacValid = verifyPhonePeWebhookHmac(payloadWithoutChecksum, receivedChecksum);
+      }
+    } catch (err) {
+      app.log.error(err, 'PhonePe HMAC verification error');
+    }
+
+    if (!hmacValid) {
+      app.log.error('PhonePe webhook HMAC verification failed');
+      return reply.status(400).send({ success: false, error: 'Invalid webhook HMAC signature' });
+    }
+
+    const payload = parsedPayload?.payload || parsedPayload || {};
+    const eventType = parsedPayload?.type || parsedPayload?.event || 'unknown';
+    const merchantTransactionId = payload.merchantTransactionId || payload.transactionId || payload.orderId;
+    const state = payload.state || parsedPayload?.code || 'UNKNOWN';
+
+    let paymentEvent;
+    try {
+      paymentEvent = await recordPaymentEvent({
+        dedupeKey: `webhook:phonepe:${createWebhookDedupeKey(rawBody || Buffer.from(''))}`,
+        eventType,
+        razorpayOrderId: merchantTransactionId || null,
+        razorpayPaymentId: payload.transactionId || payload.paymentId || null,
+        orderId: payload.merchantOrderId || null,
+        payload: { gateway: 'phonepe', parsedPayload },
+      });
+    } catch (error) {
+      app.log.error(error, 'Unable to record PhonePe webhook event');
+      return reply.status(503).send({ success: false, error: 'Webhook processing unavailable' });
+    }
+
+    if (!paymentEvent || paymentEvent.status === 'PROCESSED') {
+      return reply.send({ received: true, duplicate: true });
+    }
+
+    try {
+      let orderId: string | undefined;
+      if (state === 'COMPLETED' || state === 'SUCCESS') {
+        if (!merchantTransactionId) {
+          throw new Error('Completed webhook did not include merchant transaction identifier.');
+        }
+        const order = await markOrderPaid(merchantTransactionId, payload.transactionId || merchantTransactionId);
+        orderId = order.id;
+      } else if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELLED') {
+        if (merchantTransactionId) {
+          const order = await failOrder(merchantTransactionId);
+          orderId = order?.id;
+        }
+      }
+
+      await markPaymentEventProcessed(paymentEvent.id, 'PROCESSED', orderId);
+      return reply.send({ received: true });
+    } catch (error) {
+      await markPaymentEventProcessed(paymentEvent.id, 'REJECTED').catch(() => undefined);
+      app.log.error(error, 'PhonePe webhook processing failed');
       return reply.status(503).send({ success: false, error: 'Webhook processing failed' });
     }
   });

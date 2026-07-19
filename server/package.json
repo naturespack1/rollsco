@@ -28,6 +28,7 @@
     "exceljs": "^4.4.0",
     "fastify": "^4.28.1",
     "fastify-raw-body": "^4.3.0",
+    "pg-sdk-node": "https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz",
     "razorpay": "^2.9.4",
     "zod": "^3.23.8"
   },

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Phone, User, MessageSquare, ShieldCheck, AlertCircle } from 'lucide-react';
 import { useCartStore } from '@/store/useCartStore';
 import { useStoreStore } from '@/store/useStoreStore';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { downloadBillHtml } from '@/components/CustomerBill';
 
 export default function CheckoutPage() {
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
@@ -24,6 +25,47 @@ export default function CheckoutPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Handle PhonePe redirect return (poll for payment status)
+  useEffect(() => {
+    const gateway = searchParams.get('gateway');
+    const orderId = searchParams.get('orderId');
+    const token = searchParams.get('token');
+    if (gateway === 'phonepe' && orderId && token) {
+      setLoading(true);
+      setError('');
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await api.get(`/orders/status/${orderId}`, { params: { token } });
+          const order = statusRes.data.data;
+          if (order?.paymentStatus === 'PAID') {
+            clearInterval(pollInterval);
+            clearCart();
+            useCustomerOrdersStore.getState().addOrder(order);
+            if (order.store?.name) downloadBillHtml(order, order.store.name, order.store.address || '');
+            clearStore();
+            navigate('/');
+          } else if (order?.paymentStatus === 'FAILED') {
+            clearInterval(pollInterval);
+            setError('Payment failed. Please try again or contact support.');
+            setLoading(false);
+          }
+        } catch (err: any) {
+          // Continue polling silently
+        }
+      }, 3000);
+      // Stop polling after 5 minutes
+      const timeout = setTimeout(() => {
+        clearInterval(pollInterval);
+        setError('Payment confirmation is taking longer than expected. Please check your SMS or contact support.');
+        setLoading(false);
+      }, 5 * 60 * 1000);
+      return () => {
+        clearInterval(pollInterval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [searchParams, navigate, clearCart, clearStore]);
 
   const canCheckout = phone.length >= 10 && items.length > 0 && selectedStore && !loading;
 
@@ -44,7 +86,7 @@ export default function CheckoutPage() {
         headers: { 'Idempotency-Key': idempotencyKey },
       });
 
-      const { razorpayOrderId, amount, keyId, orderId, accessToken, paymentStatus } = res.data.data;
+      const { gateway, redirectUrl, razorpayOrderId, amount, keyId, orderId, accessToken, paymentStatus, phonepeMerchantTransactionId } = res.data.data;
 
       // A retry can return an order that was already paid after a prior network
       // failure. Complete the customer flow without opening Razorpay again.
@@ -56,6 +98,12 @@ export default function CheckoutPage() {
         if (order.store?.name) downloadBillHtml(order, order.store.name, order.store.address || '');
         clearStore();
         navigate('/');
+        return;
+      }
+
+      // PhonePe redirect-based checkout
+      if (gateway === 'phonepe' && redirectUrl) {
+        window.location.href = redirectUrl;
         return;
       }
 

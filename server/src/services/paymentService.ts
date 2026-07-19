@@ -4,7 +4,11 @@ import { Prisma } from '@prisma/client';
 import { env } from '../config';
 import { prisma } from '../prismaClient';
 
+// PhonePe SDK import (installed from official private repo)
+import { StandardCheckoutClient, Env, StandardCheckoutPayRequest, CreateSdkOrderRequest } from 'pg-sdk-node';
+
 let razorpayInstance: Razorpay | null = null;
+let phonepeClient: any = null;
 
 function getRazorpay(): Razorpay {
   if (!razorpayInstance) {
@@ -19,7 +23,37 @@ function getRazorpay(): Razorpay {
   return razorpayInstance;
 }
 
-export async function createRazorpayOrder(amountInPaise: number, receipt: string, notes: Record<string, string>) {
+function getPhonePeClient(): any {
+  if (!phonepeClient) {
+    if (!env.PHONEPE_CLIENT_ID || !env.PHONEPE_CLIENT_SECRET) {
+      throw new Error('PhonePe CLIENT_ID and CLIENT_SECRET are not configured.');
+    }
+    const clientEnv = env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
+    phonepeClient = StandardCheckoutClient.getInstance(
+      env.PHONEPE_CLIENT_ID,
+      env.PHONEPE_CLIENT_SECRET,
+      env.PHONEPE_CLIENT_VERSION,
+      clientEnv
+    );
+  }
+  return phonepeClient;
+}
+
+export async function createPaymentOrder(amountInPaise: number, receipt: string, notes: Record<string, string>) {
+  if (env.PAYMENT_GATEWAY === 'phonepe') {
+    const merchantOrderId = receipt || notes.orderId || `order-${Date.now()}`;
+    const redirectUrl = notes.redirectUrl || `${env.FRONTEND_ORIGIN || 'http://localhost:3000'}/order/success`;
+    const request = StandardCheckoutPayRequest.builder()
+      .merchantOrderId(merchantOrderId)
+      .amount(amountInPaise)
+      .redirectUrl(redirectUrl)
+      .build();
+    const response = await getPhonePeClient().pay(request);
+    return {
+      id: merchantOrderId,
+      redirectUrl: (response as any)?.redirectUrl || (response as any)?.instrumentResponse?.redirectInfo?.url || undefined,
+    };
+  }
   return getRazorpay().orders.create({
     amount: amountInPaise,
     currency: 'INR',
@@ -54,10 +88,11 @@ export async function recordPaymentEvent(input: {
   orderId?: string;
   payload: Prisma.InputJsonValue;
 }) {
+  const provider = env.PAYMENT_GATEWAY === 'phonepe' ? 'PHONEPE' : 'RAZORPAY';
   try {
     return await prisma.paymentEvent.create({
       data: {
-        provider: 'RAZORPAY',
+        provider,
         dedupeKey: input.dedupeKey,
         eventType: input.eventType,
         razorpayOrderId: input.razorpayOrderId || null,
@@ -85,14 +120,42 @@ export async function markPaymentEventProcessed(eventId: string, status: 'PROCES
   });
 }
 
-export async function fetchOrderPayments(razorpayOrderId: string) {
-  return getRazorpay().orders.fetchPayments(razorpayOrderId);
+export async function fetchOrderPayments(orderId: string) {
+  if (env.PAYMENT_GATEWAY === 'phonepe') {
+    // PhonePe SDK does not expose a direct "fetch payments for order" endpoint in the same way.
+    // We use getOrderStatus to retrieve the latest state and any payment details.
+    return await getPhonePeClient().getOrderStatus(orderId);
+  }
+  return getRazorpay().orders.fetchPayments(orderId);
 }
 
 export async function fetchPayment(paymentId: string) {
+  if (env.PAYMENT_GATEWAY === 'phonepe') {
+    // For PhonePe, the payment/transaction ID corresponds to the merchant transaction ID.
+    // We return the order status which includes the transaction state.
+    return await getPhonePeClient().getOrderStatus(paymentId);
+  }
   return getRazorpay().payments.fetch(paymentId);
 }
 
 export async function refundPayment(paymentId: string, amountInPaise: number) {
+  if (env.PAYMENT_GATEWAY === 'phonepe') {
+    // PhonePe SDK does not expose a direct refund method in StandardCheckoutClient.
+    // Refunds are handled via PhonePe merchant portal or a separate refund API.
+    // This is a placeholder to maintain interface compatibility.
+    throw new Error('PhonePe refunds must be initiated through the PhonePe merchant portal or a dedicated refund endpoint.');
+  }
   return getRazorpay().payments.refund(paymentId, { amount: amountInPaise });
+}
+
+export function verifyPhonePeWebhookHmac(rawPayloadString: string, checksumFromPayloadOrHeader: string): boolean {
+  if (!env.PHONEPE_SALT_KEY) {
+    throw new Error('PhonePe SALT_KEY is not configured for webhook verification.');
+  }
+  const hash = crypto.createHash('sha256').update(rawPayloadString + env.PHONEPE_SALT_KEY).digest('hex');
+  const expected = `${hash}###${env.PHONEPE_SALT_INDEX}`;
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(checksumFromPayloadOrHeader || '')
+  );
 }

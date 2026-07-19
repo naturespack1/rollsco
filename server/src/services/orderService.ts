@@ -1,8 +1,9 @@
 import { Prisma } from '@prisma/client';
+import { env } from '../config';
 import { prisma } from '../prismaClient';
 import { calculateGstFromInclusive } from '../utils/gstCalc';
 import { generateOrderNumber } from '../utils/orderNumber';
-import { createRazorpayOrder } from './paymentService';
+import { createPaymentOrder } from './paymentService';
 import { sendOrderSms } from './smsService';
 
 interface CartItem {
@@ -173,12 +174,12 @@ export async function createPendingOrder(
     }))
   );
 
-  let razorpayOrder;
+  let gatewayOrder;
   try {
-    razorpayOrder = await createRazorpayOrder(
+    gatewayOrder = await createPaymentOrder(
       Math.round(gstCalc.total * 100),
       order.orderNo,
-      { orderId: order.id, storeId }
+      { orderId: order.id, storeId, redirectUrl: `${env.FRONTEND_ORIGIN || 'http://localhost:3000'}/checkout?gateway=phonepe&orderId=${order.id}&token=${order.customerAccessToken}` }
     );
   } catch {
     await failOrder(order.id);
@@ -187,12 +188,13 @@ export async function createPendingOrder(
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { razorpayOrderId: razorpayOrder.id },
+    data: { razorpayOrderId: gatewayOrder.id },
   });
 
   return {
     order,
-    razorpayOrderId: razorpayOrder.id,
+    razorpayOrderId: gatewayOrder.id,
+    redirectUrl: (gatewayOrder as any).redirectUrl || undefined,
     amount: Math.round(gstCalc.total * 100),
     lineItems,
   };
