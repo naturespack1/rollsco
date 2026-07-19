@@ -1,4 +1,10 @@
 import type { Order } from '@/types';
+import {
+  isQzPrintingEnabled,
+  printChefEscPos,
+  printManyChefEscPos,
+  printCustomerEscPos,
+} from '@/lib/qzEscpos';
 
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';
@@ -6,6 +12,13 @@ function escapeHtml(text: string | null | undefined): string {
 }
 
 export function openChefBillPrint(order: Order, storeName: string, storeAddress: string) {
+  if (isQzPrintingEnabled()) {
+    void printChefEscPos(order, storeName, storeAddress).catch((error) => {
+      console.error('ESC/POS chef print failed', error);
+      alert(`ESC/POS print failed: ${error instanceof Error ? error.message : 'Check that QZ Tray is running.'}`);
+    });
+    return;
+  }
   const items = order.items || [];
   const printWindow = window.open('', '_blank', 'width=320,height=600');
   if (!printWindow) {
@@ -79,6 +92,13 @@ ${order.customerMessage ? `
 
 export function openMultipleChefBillPrint(orders: Order[], storeName: string, storeAddress: string) {
   if (orders.length === 0) return;
+  if (isQzPrintingEnabled()) {
+    void printManyChefEscPos(orders, storeName, storeAddress).catch((error) => {
+      console.error('ESC/POS batch chef print failed', error);
+      alert(`ESC/POS print failed: ${error instanceof Error ? error.message : 'Check that QZ Tray is running.'}`);
+    });
+    return;
+  }
   if (orders.length === 1) return openChefBillPrint(orders[0], storeName, storeAddress);
 
   const printWindow = window.open('', '_blank', 'width=320,height=600');
@@ -172,6 +192,13 @@ ${orderBlocks}
 }
 
 export function openCustomerBillPrint(order: Order, storeName: string, storeAddress: string) {
+  if (isQzPrintingEnabled()) {
+    void printCustomerEscPos(order, storeName, storeAddress).catch((error) => {
+      console.error('ESC/POS customer print failed', error);
+      alert(`ESC/POS print failed: ${error instanceof Error ? error.message : 'Check that QZ Tray is running.'}`);
+    });
+    return;
+  }
   const items = order.items || [];
   const totalNum = typeof order.total === 'string' ? parseFloat(order.total) : (order.total || 0);
   const cgstNum = typeof order.cgstAmount === 'string' ? parseFloat(order.cgstAmount) : (order.cgstAmount || 0);

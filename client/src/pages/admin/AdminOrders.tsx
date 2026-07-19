@@ -6,6 +6,7 @@ import { useAdminCacheStore } from '@/store/useAdminCacheStore';
 import type { Order } from '@/types';
 import BillPrint from '@/components/BillPrint';
 import { openChefBillPrint, openMultipleChefBillPrint } from '@/lib/thermalPrint';
+import { getQzPrinterName, getQzPrinters, isQzPrintingEnabled, setQzPrinting, testEscPosCut } from '@/lib/qzEscpos';
 import {
   RefreshCw,
   CheckCircle,
@@ -75,6 +76,41 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
     return true;
   });
   const [lastNewOrderCount, setLastNewOrderCount] = useState(0);
+  const [useEscPos, setUseEscPos] = useState(() => isQzPrintingEnabled());
+  const [qzPrinter, setQzPrinter] = useState(() => getQzPrinterName());
+  const [qzPrinters, setQzPrinters] = useState<string[]>([]);
+  const [qzStatus, setQzStatus] = useState('');
+
+  const loadQzPrinters = async () => {
+    setQzStatus('Connecting to QZ Tray…');
+    try {
+      const printers = await getQzPrinters();
+      setQzPrinters(printers);
+      if (!qzPrinter && printers.length) setQzPrinter(printers[0]);
+      setQzStatus(printers.length ? `${printers.length} printer(s) found` : 'No printers found in QZ Tray');
+    } catch (error) {
+      setQzStatus(`Could not connect to QZ Tray: ${error instanceof Error ? error.message : 'start QZ Tray and try again'}`);
+    }
+  };
+
+  const saveQzSettings = () => {
+    if (useEscPos && !qzPrinter.trim()) {
+      setQzStatus('Select a printer before enabling ESC/POS printing.');
+      return;
+    }
+    setQzPrinting(useEscPos, qzPrinter);
+    setQzStatus(useEscPos ? 'ESC/POS auto-cut printing saved.' : 'Browser printing saved.');
+  };
+
+  const runEscPosTest = async () => {
+    try {
+      setQzPrinting(true, qzPrinter);
+      await testEscPosCut();
+      setQzStatus('Test sent. The printer should feed and cut the paper.');
+    } catch (error) {
+      setQzStatus(`Test failed: ${error instanceof Error ? error.message : 'Check QZ Tray and the selected printer.'}`);
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -382,6 +418,25 @@ export default function AdminOrders({ storeId }: AdminOrdersProps) {
           </button>
         </div>
       </div>
+
+      <section className="rounded-lg border border-gray-700 bg-gray-900 p-3 text-xs text-gray-200">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={useEscPos} onChange={(e) => setUseEscPos(e.target.checked)} className="rounded border-gray-600 bg-gray-800 text-brand-600" />
+            <span className="font-semibold">Use QZ Tray ESC/POS printing with auto-cut</span>
+          </label>
+          <button type="button" onClick={() => void loadQzPrinters()} className="rounded bg-gray-800 border border-gray-600 px-2 py-1 hover:bg-gray-700">Find printers</button>
+          <select value={qzPrinter} onChange={(e) => setQzPrinter(e.target.value)} disabled={!useEscPos} className="min-w-52 rounded border border-gray-600 bg-gray-800 px-2 py-1 disabled:opacity-50">
+            <option value="">Select printer…</option>
+            {qzPrinters.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
+            {qzPrinter && !qzPrinters.includes(qzPrinter) && <option value={qzPrinter}>{qzPrinter}</option>}
+          </select>
+          <button type="button" onClick={saveQzSettings} className="rounded bg-brand-600 px-2 py-1 font-medium text-white hover:bg-brand-700">Save print mode</button>
+          <button type="button" disabled={!useEscPos || !qzPrinter} onClick={() => void runEscPosTest()} className="rounded border border-amber-600 px-2 py-1 text-amber-300 hover:bg-amber-900/30 disabled:opacity-50">Test print & cut</button>
+        </div>
+        <p className="mt-2 text-[11px] text-gray-400">Install and run QZ Tray on this computer, click Find printers, choose the thermal printer, then test. ESC/POS sends the physical full-cut command after every receipt.</p>
+        {qzStatus && <p className="mt-1 text-[11px] text-amber-300">{qzStatus}</p>}
+      </section>
 
       {/* Error Banner */}
       {error && (
