@@ -123,8 +123,12 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
     const payload = parsedPayload?.payload || parsedPayload || {};
     const eventType = parsedPayload?.type || parsedPayload?.event || parsedPayload?.code || 'unknown';
-    const merchantTransactionId = (payload.merchantTransactionId || payload.transactionId || payload.merchantTransactionId || payload.orderId || parsedPayload?.merchantTransactionId || parsedPayload?.orderId || '');
+    // PhonePe uses merchantOrderId (our orderNo stored in razorpayOrderId) for lookup
+    const merchantTransactionId = (payload.merchantOrderId || payload.merchantTransactionId || payload.transactionId || payload.orderId || parsedPayload?.merchantOrderId || parsedPayload?.orderId || '');
     const state = (payload.state || parsedPayload?.state || parsedPayload?.code || 'UNKNOWN').toString();
+
+    // Extract transactionId from paymentDetails array (PhonePe structure)
+    const transactionId = payload.transactionId || (Array.isArray(payload.paymentDetails) && payload.paymentDetails[0]?.transactionId) || payload.paymentId || null;
 
     let paymentEvent;
     try {
@@ -132,7 +136,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
         dedupeKey: `webhook:phonepe:${createWebhookDedupeKey(rawBody || Buffer.from(''))}`,
         eventType,
         razorpayOrderId: merchantTransactionId || null,
-        razorpayPaymentId: payload.transactionId || payload.paymentId || null,
+        razorpayPaymentId: transactionId || null,
         orderId: payload.merchantOrderId || null,
         payload: { gateway: 'phonepe', parsedPayload },
       });
@@ -151,7 +155,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
         if (!merchantTransactionId) {
           throw new Error('Completed webhook did not include merchant transaction identifier.');
         }
-        const order = await markOrderPaid(merchantTransactionId, payload.transactionId || merchantTransactionId);
+        const order = await markOrderPaid(merchantTransactionId, transactionId || merchantTransactionId);
         orderId = order.id;
       } else if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELLED') {
         if (merchantTransactionId) {
