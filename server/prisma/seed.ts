@@ -205,7 +205,7 @@ async function main() {
       storeId: store1.id,
       categoryId: catCombo.id,
       name: 'Magic Combo',
-      description: 'Your choice of burger + fries + beverage.',
+      description: 'Your choice of falafal roll + fries + beverage.',
       price: 140,
       stock: 18,
       gstRate: 5,
