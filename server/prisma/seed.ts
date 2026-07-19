@@ -1,4 +1,4 @@
-import { PrismaClient, AdminRole } from '@prisma/client';
+import { PrismaClient, AdminRole, FoodType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -69,7 +69,7 @@ async function main() {
       stock: 25,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/rolls.jpg',
+      imageUrl: '/images/rolls1.jpg',
       isBestseller: true
     },
     {
@@ -81,7 +81,7 @@ async function main() {
       stock: 20,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/rolls.jpg'
+      imageUrl: '/images/rolls2.jpg'
     },
     {
       storeId: store1.id,
@@ -92,7 +92,7 @@ async function main() {
       stock: 18,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/rolls.jpg'
+      imageUrl: '/images/rolls3.jpg'
     },
     {
       storeId: store1.id,
@@ -103,7 +103,7 @@ async function main() {
       stock: 22,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/rolls.jpg'
+      imageUrl: '/images/rolls4.jpg'
     },
 
     // Burgers
@@ -116,7 +116,7 @@ async function main() {
       stock: 25,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/burgers.jpg'
+      imageUrl: '/images/burgers1.jpg'
     },
     {
       storeId: store1.id,
@@ -127,7 +127,7 @@ async function main() {
       stock: 20,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/burgers.jpg'
+      imageUrl: '/images/burgers2.jpg'
     },
 
     // Extras
@@ -140,7 +140,7 @@ async function main() {
       stock: 30,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/extras.jpg',
+      imageUrl: '/images/extras1.jpg',
       isBestseller: true
     },
     {
@@ -152,7 +152,7 @@ async function main() {
       stock: 25,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/extras.jpg'
+      imageUrl: '/images/extras2.jpg'
     },
     {
       storeId: store1.id,
@@ -163,7 +163,7 @@ async function main() {
       stock: 40,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/extras.jpg',
+      imageUrl: '/images/extras3.jpg',
       isBestseller: true
     },
     {
@@ -175,7 +175,7 @@ async function main() {
       stock: 35,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/extras.jpg'
+      imageUrl: '/images/extras4.jpg'
     },
     {
       storeId: store1.id,
@@ -186,7 +186,7 @@ async function main() {
       stock: 50,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/extras.jpg'
+      imageUrl: '/images/extras5.jpg'
     },
 
     // Combos
@@ -199,7 +199,7 @@ async function main() {
       stock: 20,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/combos.jpg'
+      imageUrl: '/images/combos1.jpg'
     },
     {
       storeId: store1.id,
@@ -210,7 +210,7 @@ async function main() {
       stock: 18,
       gstRate: 5,
       hsnCode: '2106',
-      imageUrl: '/images/combos.jpg'
+      imageUrl: '/images/combos2.jpg'
     },
 
     // Beverages
@@ -223,7 +223,7 @@ async function main() {
       stock: 35,
       gstRate: 12,
       hsnCode: '2202',
-      imageUrl: '/images/beverages.jpg',
+      imageUrl: '/images/beverages1.jpg',
       isBestseller: true
     },
     {
@@ -235,7 +235,7 @@ async function main() {
       stock: 40,
       gstRate: 12,
       hsnCode: '2202',
-      imageUrl: '/images/beverages.jpg'
+      imageUrl: '/images/beverages2.jpg'
     },
     {
       storeId: store1.id,
@@ -246,20 +246,39 @@ async function main() {
       stock: 60,
       gstRate: 12,
       hsnCode: '2201',
-      imageUrl: '/images/beverages.jpg'
+      imageUrl: '/images/beverages3.jpg'
     }
   ];
 
+  // Executive Combo intentionally has no symbol because it can contain either choice.
+  const foodTypes: Record<string, FoodType> = {
+    'Crispy Chicken Roll': FoodType.NON_VEG,
+    'Chicken Tikka Roll': FoodType.NON_VEG,
+    'Paneer Tikka Roll': FoodType.VEG,
+    'Falafel Roll': FoodType.VEG,
+    'Crispy Chicken Burger': FoodType.NON_VEG,
+    'Veg Falafel Burger': FoodType.VEG,
+    'Chicken Popcorn': FoodType.NON_VEG,
+    'Falafel Box': FoodType.VEG,
+    'Classic Fries': FoodType.VEG,
+    'Peri Peri Fries': FoodType.VEG,
+    'Cheese': FoodType.VEG,
+    'Magic Combo': FoodType.VEG,
+    'Classic Cold Coffee': FoodType.VEG,
+    'Iced Lemon Tea': FoodType.VEG,
+    'Water 500ml': FoodType.VEG,
+  };
+
   // Seed items for Store 1
   for (const item of itemsData) {
-    await prisma.item.create({ data: item });
+    await prisma.item.create({ data: { ...item, foodType: foodTypes[item.name] ?? null } });
   }
 
   // Replicate items for Store 2
   for (const item of itemsData) {
     const { id, ...itemData } = item as any;
     await prisma.item.create({
-      data: { ...itemData, storeId: store2.id }
+      data: { ...itemData, foodType: foodTypes[item.name] ?? null, storeId: store2.id }
     });
   }
 

@@ -34,6 +34,7 @@ interface MenuItemData {
   hsnCode: string | null | undefined;
   imageUrl: string | null | undefined;
   isBestseller: boolean;
+  foodType: 'VEG' | 'NON_VEG' | null;
   isAvailable: boolean;
   storeId: string;
   categoryId: string;
@@ -54,6 +55,7 @@ const emptyForm = {
   hsnCode: '',
   imageUrl: '',
   isBestseller: false,
+  foodType: '',
   isAvailable: true,
   categoryId: '',
 };
@@ -148,6 +150,7 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
       hsnCode: item.hsnCode || '',
       imageUrl: item.imageUrl || '',
       isBestseller: item.isBestseller,
+      foodType: item.foodType || '',
       isAvailable: item.isAvailable,
       categoryId: item.categoryId || '',
     });
@@ -182,6 +185,7 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
         hsnCode: form.hsnCode || undefined,
         imageUrl: form.imageUrl || undefined,
         isBestseller: form.isBestseller,
+        foodType: (form.foodType || null) as MenuItemData['foodType'],
         isAvailable: form.isAvailable,
       };
 
@@ -365,6 +369,18 @@ export default function AdminMenu({ storeId }: AdminMenuProps) {
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500"
                 placeholder="5"
               />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Food type symbol</label>
+              <select
+                value={form.foodType}
+                onChange={(e) => setForm((f) => ({ ...f, foodType: e.target.value }))}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500"
+              >
+                <option value="">No symbol</option>
+                <option value="VEG">Veg (green)</option>
+                <option value="NON_VEG">Non-veg (red)</option>
+              </select>
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">HSN Code</label>

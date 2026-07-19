@@ -14,6 +14,8 @@ export interface MenuItem {
   stock: number;
   imageUrl?: string;
   isBestseller: boolean;
+  /** Null means no dietary symbol should be displayed. */
+  foodType?: 'VEG' | 'NON_VEG' | null;
   gstRate: number;
   hsnCode?: string;
   category: string;

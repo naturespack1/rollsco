@@ -50,7 +50,21 @@ export default function MenuItemCard({ item }: MenuItemCardProps) {
       <div className="flex-1 min-w-0 flex flex-col justify-between">
         <div>
           <div className="flex items-start justify-between gap-2">
-            <h4 className="font-semibold text-gray-900 text-sm leading-tight">{item.name}</h4>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h4 className="font-semibold text-gray-900 text-sm leading-tight">{item.name}</h4>
+              {item.foodType && (
+                <span
+                  aria-label={item.foodType === 'VEG' ? 'Vegetarian' : 'Non-vegetarian'}
+                  title={item.foodType === 'VEG' ? 'Veg' : 'Non-veg'}
+                  className={cn(
+                    'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center border',
+                    item.foodType === 'VEG' ? 'border-green-600' : 'border-red-600'
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', item.foodType === 'VEG' ? 'bg-green-600' : 'bg-red-600')} />
+                </span>
+              )}
+            </div>
           </div>
           {item.description && (
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</p>

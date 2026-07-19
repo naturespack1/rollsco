@@ -54,6 +54,7 @@ const createItemSchema = z.object({
   hsnCode: z.string().max(20).optional(),
   imageUrl: z.string().max(500).optional(),
   isBestseller: z.boolean().default(false),
+  foodType: z.enum(['VEG', 'NON_VEG']).nullable().optional(),
   isAvailable: z.boolean().default(true),
 });
 
@@ -67,6 +68,7 @@ const updateItemSchema = z.object({
   hsnCode: z.string().max(20).optional(),
   imageUrl: z.string().max(500).optional(),
   isBestseller: z.boolean().optional(),
+  foodType: z.enum(['VEG', 'NON_VEG']).nullable().optional(),
   isAvailable: z.boolean().optional(),
 });
 
@@ -269,6 +271,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       hsnCode: i.hsnCode,
       imageUrl: i.imageUrl,
       isBestseller: i.isBestseller,
+      foodType: i.foodType,
       isAvailable: i.isAvailable,
       storeId: i.storeId,
       categoryId: i.categoryId,
@@ -296,6 +299,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
         hsnCode: body.hsnCode ?? null,
         imageUrl: body.imageUrl ?? null,
         isBestseller: body.isBestseller ?? false,
+        foodType: body.foodType ?? null,
         isAvailable: body.isAvailable ?? true,
       },
     });
