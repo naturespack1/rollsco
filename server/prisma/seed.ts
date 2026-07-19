@@ -1,9 +1,11 @@
+```ts
 import { PrismaClient, AdminRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Clean up in correct order
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
   await prisma.item.deleteMany();
@@ -12,13 +14,26 @@ async function main() {
   await prisma.adminUser.deleteMany();
   await prisma.store.deleteMany();
 
+  // Create Stores
   const store1 = await prisma.store.create({
-    data: { name: "Roll's & Co. Boring Road", address: 'Boring Road, Patna', isOpen: true, acceptingOrders: true }
-  });
-  const store2 = await prisma.store.create({
-    data: { name: "Roll's & Co. Kankarbagh", address: 'Kankarbagh, Patna', isOpen: true, acceptingOrders: true }
+    data: {
+      name: "Roll's & Co. Boring Road",
+      address: 'Boring Road, Patna',
+      isOpen: true,
+      acceptingOrders: true
+    }
   });
 
+  const store2 = await prisma.store.create({
+    data: {
+      name: "Roll's & Co. Kankarbagh",
+      address: 'Kankarbagh, Patna',
+      isOpen: true,
+      acceptingOrders: true
+    }
+  });
+
+  // Create Super Admin
   const admin = await prisma.adminUser.create({
     data: {
       email: 'admin@rollsandco.com',
@@ -28,6 +43,7 @@ async function main() {
     }
   });
 
+  // Link admin to both stores
   await prisma.adminStore.create({
     data: { adminId: admin.id, storeId: store1.id }
   });
@@ -35,49 +51,226 @@ async function main() {
     data: { adminId: admin.id, storeId: store2.id }
   });
 
-  const catRoll = await prisma.category.create({ data: { name: 'Roll', sort: 1 } });
+  // Create Categories
+  const catRoll = await prisma.category.create({ data: { name: 'Rolls', sort: 1 } });
   const catBurger = await prisma.category.create({ data: { name: 'Burgers', sort: 2 } });
-  const catBev = await prisma.category.create({ data: { name: 'Beverages', sort: 3 } });
-  const catExtra = await prisma.category.create({ data: { name: 'Extras', sort: 4 } });
-  const catCombo = await prisma.category.create({ data: { name: 'Combos', sort: 5 } });
+  const catExtra = await prisma.category.create({ data: { name: 'Extras', sort: 3 } });
+  const catCombo = await prisma.category.create({ data: { name: 'Combos', sort: 4 } });
+  const catBev = await prisma.category.create({ data: { name: 'Beverages', sort: 5 } });
 
+  // Items data (new list)
   const itemsData = [
     // Rolls
-    { storeId: store1.id, categoryId: catRoll.id, name: 'Chicken Kathi Roll', description: 'Soft paratha stuffed with spicy chicken tikka, onions & mint chutney.', price: 120, stock: 25, gstRate: 5, hsnCode: '2106', imageUrl: '/images/rolls.jpg', isBestseller: true },
-    { storeId: store1.id, categoryId: catRoll.id, name: 'Paneer Tikka Roll', description: 'Grilled paneer cubes with capsicum in a whole wheat wrap.', price: 100, stock: 15, gstRate: 5, hsnCode: '2106', imageUrl: '/images/rolls.jpg' },
-    { storeId: store1.id, categoryId: catRoll.id, name: 'Egg Roll', description: 'Classic double egg roll with onions, green chilies & special sauce.', price: 70, stock: 30, gstRate: 5, hsnCode: '2106', imageUrl: '/images/rolls.jpg' },
+    {
+      storeId: store1.id,
+      categoryId: catRoll.id,
+      name: 'Crispy Chicken Roll',
+      description: 'Crispy fried chicken wrapped in a soft paratha with onions and sauce.',
+      price: 100,
+      stock: 25,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/rolls.jpg',
+      isBestseller: true
+    },
+    {
+      storeId: store1.id,
+      categoryId: catRoll.id,
+      name: 'Chicken Tikka Roll',
+      description: 'Spicy chicken tikka with onions and mint chutney in a paratha.',
+      price: 100,
+      stock: 20,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/rolls.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catRoll.id,
+      name: 'Paneer Tikka Roll',
+      description: 'Grilled paneer tikka with capsicum and onions in a whole wheat wrap.',
+      price: 100,
+      stock: 18,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/rolls.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catRoll.id,
+      name: 'Falafel Roll',
+      description: 'Crispy falafel with fresh vegetables and tahini sauce.',
+      price: 80,
+      stock: 22,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/rolls.jpg'
+    },
+
     // Burgers
-    { storeId: store1.id, categoryId: catBurger.id, name: 'Classic Chicken Burger', description: 'Juicy chicken patty, lettuce, tomato, cheese & secret sauce.', price: 150, stock: 20, gstRate: 5, hsnCode: '2106', imageUrl: '/images/burgers.jpg', isBestseller: true },
-    { storeId: store1.id, categoryId: catBurger.id, name: 'Veggie Delight Burger', description: 'Crispy veg patty, coleslaw, gherkins & cheese slice.', price: 120, stock: 18, gstRate: 5, hsnCode: '2106', imageUrl: '/images/burgers.jpg' },
-    { storeId: store1.id, categoryId: catBurger.id, name: 'Double Trouble Burger', description: 'Two beef-style patties, double cheese, caramelized onions.', price: 220, stock: 8, gstRate: 5, hsnCode: '2106', imageUrl: '/images/burgers.jpg' },
-    // Beverages
-    { storeId: store1.id, categoryId: catBev.id, name: 'Cold Coffee', description: 'Creamy cold coffee with whipped cream topping.', price: 90, stock: 40, gstRate: 12, hsnCode: '2202', imageUrl: '/images/beverages.jpg' },
-    { storeId: store1.id, categoryId: catBev.id, name: 'Fresh Lime Soda', description: 'Sweet or salted lime soda with fresh mint.', price: 60, stock: 50, gstRate: 12, hsnCode: '2202', imageUrl: '/images/beverages.jpg' },
-    { storeId: store1.id, categoryId: catBev.id, name: 'Iced Lemon Tea', description: 'Brewed tea with lemon & ice.', price: 70, stock: 35, gstRate: 12, hsnCode: '2202', imageUrl: '/images/beverages.jpg' },
+    {
+      storeId: store1.id,
+      categoryId: catBurger.id,
+      name: 'Crispy Chicken Burger',
+      description: 'Crispy chicken patty with lettuce, tomato and special sauce.',
+      price: 80,
+      stock: 25,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/burgers.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catBurger.id,
+      name: 'Veg Falafel Burger',
+      description: 'Crispy falafel patty with fresh veggies and sauce.',
+      price: 70,
+      stock: 20,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/burgers.jpg'
+    },
+
     // Extras
-    { storeId: store1.id, categoryId: catExtra.id, name: 'Crispy Fries', description: 'Golden french fries with peri-peri seasoning.', price: 80, stock: 50, gstRate: 5, hsnCode: '2106', imageUrl: '/images/extras.jpg' },
-    { storeId: store1.id, categoryId: catExtra.id, name: 'Cheesy Potato Wedges', description: 'Baked wedges loaded with cheese & jalapeños.', price: 110, stock: 12, gstRate: 5, hsnCode: '2106', imageUrl: '/images/extras.jpg' },
-    { storeId: store1.id, categoryId: catExtra.id, name: 'Garlic Bread Sticks', description: 'Oven-baked bread sticks with garlic butter & herbs.', price: 90, stock: 20, gstRate: 5, hsnCode: '2106', imageUrl: '/images/extras.jpg' },
-    // Combos (treated as items)
-    { storeId: store1.id, categoryId: catCombo.id, name: 'Classic Combo', description: 'Chicken Burger + Fries + Cold Coffee. Best value.', price: 290, stock: 30, gstRate: 5, hsnCode: '2106', imageUrl: '/images/combos.jpg', isBestseller: true },
-    { storeId: store1.id, categoryId: catCombo.id, name: 'Roll Meal', description: 'Chicken Kathi Roll + Fresh Lime Soda + Garlic Bread.', price: 240, stock: 20, gstRate: 5, hsnCode: '2106', imageUrl: '/images/combos.jpg' },
-    { storeId: store1.id, categoryId: catCombo.id, name: 'Burger Feast', description: 'Double Trouble Burger + Cheesy Wedges + Iced Tea.', price: 380, stock: 15, gstRate: 5, hsnCode: '2106', imageUrl: '/images/combos.jpg' },
+    {
+      storeId: store1.id,
+      categoryId: catExtra.id,
+      name: 'Chicken Popcorn',
+      description: 'Crispy bite-sized chicken pieces.',
+      price: 80,
+      stock: 30,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/extras.jpg',
+      isBestseller: true
+    },
+    {
+      storeId: store1.id,
+      categoryId: catExtra.id,
+      name: 'Falafel Box',
+      description: 'Crispy falafel served with dip.',
+      price: 70,
+      stock: 25,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/extras.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catExtra.id,
+      name: 'Classic Fries',
+      description: 'Golden crispy french fries.',
+      price: 40,
+      stock: 40,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/extras.jpg',
+      isBestseller: true
+    },
+    {
+      storeId: store1.id,
+      categoryId: catExtra.id,
+      name: 'Peri Peri Fries',
+      description: 'Spicy peri-peri seasoned french fries.',
+      price: 40,
+      stock: 35,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/extras.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catExtra.id,
+      name: 'Cheese',
+      description: 'Extra cheese slice.',
+      price: 10,
+      stock: 50,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/extras.jpg'
+    },
+
+    // Combos
+    {
+      storeId: store1.id,
+      categoryId: catCombo.id,
+      name: 'Executive Combo',
+      description: 'Your choice of roll + fries + beverage.',
+      price: 160,
+      stock: 20,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/combos.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catCombo.id,
+      name: 'Magic Combo',
+      description: 'Your choice of burger + fries + beverage.',
+      price: 140,
+      stock: 18,
+      gstRate: 5,
+      hsnCode: '2106',
+      imageUrl: '/images/combos.jpg'
+    },
+
+    // Beverages
+    {
+      storeId: store1.id,
+      categoryId: catBev.id,
+      name: 'Classic Cold Coffee',
+      description: 'Creamy cold coffee with whipped cream.',
+      price: 60,
+      stock: 35,
+      gstRate: 12,
+      hsnCode: '2202',
+      imageUrl: '/images/beverages.jpg',
+      isBestseller: true
+    },
+    {
+      storeId: store1.id,
+      categoryId: catBev.id,
+      name: 'Iced Lemon Tea',
+      description: 'Refreshing iced lemon tea.',
+      price: 40,
+      stock: 40,
+      gstRate: 12,
+      hsnCode: '2202',
+      imageUrl: '/images/beverages.jpg'
+    },
+    {
+      storeId: store1.id,
+      categoryId: catBev.id,
+      name: 'Water 500ml',
+      description: 'Bottled drinking water.',
+      price: 10,
+      stock: 60,
+      gstRate: 12,
+      hsnCode: '2201',
+      imageUrl: '/images/beverages.jpg'
+    }
   ];
 
+  // Seed items for Store 1
   for (const item of itemsData) {
     await prisma.item.create({ data: item });
   }
 
-  // Replicate for Store 2 (simplified)
+  // Replicate items for Store 2
   for (const item of itemsData) {
+    const { id, ...itemData } = item as any;
     await prisma.item.create({
-      data: { ...item, storeId: store2.id, id: undefined } as any
+      data: { ...itemData, storeId: store2.id }
     });
   }
 
-  console.log('Seed completed.');
+  console.log('✅ Seed completed successfully!');
 }
 
 main()
-  .catch((e) => { console.error(e); process.exit(1); })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
   .finally(() => prisma.$disconnect());
+```
