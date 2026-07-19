@@ -103,6 +103,8 @@ export default function CheckoutPage() {
 
       // PhonePe redirect-based checkout
       if (gateway === 'phonepe' && redirectUrl) {
+        // Store redirect info locally so user can manually verify after redirect
+        localStorage.setItem('phonepe_pending_order', JSON.stringify({ orderId, token: accessToken, merchantTransactionId: phonepeMerchantTransactionId }));
         window.location.href = redirectUrl;
         return;
       }
@@ -279,6 +281,13 @@ export default function CheckoutPage() {
         </p>
       </div>
 
+      {loading && searchParams.get('gateway') === 'phonepe' && (
+        <div className="bg-blue-50 rounded-lg p-4 mb-4 text-sm text-blue-800">
+          <p className="font-semibold">Waiting for PhonePe confirmation...</p>
+          <p className="text-xs mt-1">Payment may take a few moments. If you completed payment but don't see confirmation, click "Check Status" below.</p>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 rounded-lg p-3 flex items-start gap-2 mb-4">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -297,6 +306,40 @@ export default function CheckoutPage() {
         <ShieldCheck className="w-5 h-5" />
         {loading ? 'Processing...' : `Pay ${formatPrice(totals.total)}`}
       </button>
+
+      {/* Manual status check for PhonePe users */}
+      {(searchParams.get('gateway') === 'phonepe' || loading) && (
+        <button
+          onClick={async () => {
+            const orderId = searchParams.get('orderId');
+            const token = searchParams.get('token');
+            const stored = localStorage.getItem('phonepe_pending_order');
+            const fallbackId = stored ? JSON.parse(stored).orderId : orderId;
+            const fallbackToken = stored ? JSON.parse(stored).token : token;
+            if (fallbackId && fallbackToken) {
+              try {
+                const res = await api.get(`/orders/status/${fallbackId}`, { params: { token: fallbackToken } });
+                const order = res.data.data;
+                if (order?.paymentStatus === 'PAID') {
+                  clearCart();
+                  useCustomerOrdersStore.getState().addOrder(order);
+                  if (order.store?.name) downloadBillHtml(order, order.store.name, order.store.address || '');
+                  clearStore();
+                  localStorage.removeItem('phonepe_pending_order');
+                  navigate('/');
+                } else if (order?.paymentStatus === 'PENDING') {
+                  setError('Payment is still being confirmed. Please wait or contact support if you completed payment.');
+                }
+              } catch (e: any) {
+                setError('Could not verify status. Please check your SMS or contact support.');
+              }
+            }
+          }}
+          className="w-full mt-3 py-2.5 rounded-xl font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition text-sm"
+        >
+          Check Payment Status
+        </button>
+      )}
     </div>
   );
 }

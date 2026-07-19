@@ -154,8 +154,8 @@ export function verifyPhonePeWebhookHmac(rawPayloadString: string, checksumFromP
   }
   const hash = crypto.createHash('sha256').update(rawPayloadString + env.PHONEPE_SALT_KEY).digest('hex');
   const expected = `${hash}###${env.PHONEPE_SALT_INDEX}`;
-  return crypto.timingSafeEqual(
-    Buffer.from(expected),
-    Buffer.from(checksumFromPayloadOrHeader || '')
-  );
+  const expectedBuf = Buffer.from(expected);
+  const receivedBuf = Buffer.from(checksumFromPayloadOrHeader || '');
+  if (expectedBuf.length !== receivedBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, receivedBuf);
 }
