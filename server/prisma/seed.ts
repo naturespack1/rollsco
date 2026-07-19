@@ -1,4 +1,3 @@
-```ts
 import { PrismaClient, AdminRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -65,7 +64,7 @@ async function main() {
       storeId: store1.id,
       categoryId: catRoll.id,
       name: 'Crispy Chicken Roll',
-      description: 'Crispy fried chicken wrapped in a soft paratha with onions and sauce.',
+      description: 'Crispy fried chicken wrapped in a soft rumali roti with onions and sauce.',
       price: 100,
       stock: 25,
       gstRate: 5,
@@ -77,7 +76,7 @@ async function main() {
       storeId: store1.id,
       categoryId: catRoll.id,
       name: 'Chicken Tikka Roll',
-      description: 'Spicy chicken tikka with onions and mint chutney in a paratha.',
+      description: 'Spicy chicken tikka with onions and mint chutney in a rumali roti.',
       price: 100,
       stock: 20,
       gstRate: 5,
@@ -273,4 +272,3 @@ main()
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());
-```
