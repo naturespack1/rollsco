@@ -26,6 +26,7 @@ export default function StoreSelector() {
   const lastOrder = useCustomerOrdersStore((s) => s.getLastCompletedOrder());
   const markLastOrderShown = useCustomerOrdersStore((s) => s.markLastOrderShown);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showStorePopup, setShowStorePopup] = useState(false);
 
   useEffect(() => {
     api.get('/stores').then((res) => {
@@ -72,6 +73,8 @@ export default function StoreSelector() {
   };
 
   const recentOrders = useCustomerOrdersStore((s) => s.getRecentOrders(24 * 60));
+
+  const openStores = stores.filter((s) => s.isOpen && s.acceptingOrders);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
@@ -161,14 +164,23 @@ export default function StoreSelector() {
 
         <div className="grid grid-cols-3 gap-3">
           {taglines.map((t, idx) => (
-            <div key={idx} className="relative rounded-xl overflow-hidden aspect-[4/5] bg-gray-100 shadow-sm group">
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setShowStorePopup(true)}
+              aria-label="Order now - select a store"
+              className="relative rounded-xl overflow-hidden aspect-[4/5] bg-gray-100 shadow-sm group text-left cursor-pointer transition active:scale-[0.97]"
+            >
               <img src={t.image} alt={t.text} className="w-full h-full object-cover transition duration-500 group-hover:scale-105" loading="eager" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/25 backdrop-blur-sm flex items-center justify-center">
+                <ChevronRight className="w-3.5 h-3.5 text-white" />
+              </div>
               <div className="absolute bottom-0 left-0 right-0 p-3">
                 <p className="text-white font-bold text-xs leading-tight mb-0.5">{t.text}</p>
                 <p className="text-white/70 text-[10px] leading-tight">{t.sub}</p>
               </div>
-            </div>
+            </button>
           ))}
         </div>
 
@@ -284,6 +296,71 @@ export default function StoreSelector() {
       <div className="mt-10 text-center">
         <p className="text-[11px] font-bold tracking-[0.2em] uppercase text-gray-400">Wrap. Bite. Repeat.</p>
       </div>
+
+      {showStorePopup && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setShowStorePopup(false)}
+          />
+          <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg tracking-tight">Select a Store</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Pick an open store to start your order</p>
+              </div>
+              <button
+                onClick={() => setShowStorePopup(false)}
+                className="p-1.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto">
+              {loading ? (
+                <div className="flex justify-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
+                </div>
+              ) : openStores.length === 0 ? (
+                <div className="py-10 text-center">
+                  <Store className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-gray-700">No stores open right now</p>
+                  <p className="text-xs text-gray-500 mt-1">Please check back soon.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {openStores.map((store) => (
+                    <button
+                      key={store.id}
+                      onClick={() => selectStore(store)}
+                      className="relative flex items-start gap-4 p-4 rounded-xl border bg-white border-gray-200 shadow-sm hover:border-brand-300 hover:shadow-md active:scale-[0.99] text-left transition"
+                    >
+                      <div className="mt-1">
+                        <Store className="w-8 h-8 text-brand-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-gray-900 truncate">{store.name}</h3>
+                          <span className="flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                            <Clock className="w-3 h-3" /> Open
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1 text-sm text-gray-500">
+                          <MapPin className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{store.address}</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-300 shrink-0 self-center" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
