@@ -147,11 +147,17 @@ export default async function orderRoutes(app: FastifyInstance) {
       include: {
         store: { select: { name: true, address: true, googleReviewUrl: true, googleMapsUrl: true } },
         items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } },
-        feedback: { select: { id: true, rating: true, comment: true, createdAt: true } },
       },
     });
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' });
-    return { success: true, data: order };
+
+    // Fetch feedback separately – no FK relation to Order now (easier cleanup)
+    const feedback = await prisma.feedback.findUnique({
+      where: { orderId: order.id },
+      select: { id: true, rating: true, comment: true, createdAt: true, orderNo: true },
+    });
+
+    return { success: true, data: { ...order, feedback } };
   });
 
   app.post('/verify', {

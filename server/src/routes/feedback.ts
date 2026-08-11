@@ -5,6 +5,8 @@ import { prisma } from '../prismaClient';
 export default async function feedbackRoutes(app: FastifyInstance) {
   // Public: submit feedback for an order (customer)
   // Requires orderId + token (customerAccessToken) to verify ownership
+  // No foreign key to Order table – orderId is stored as plain reference
+  // to make order cleanup easier.
   app.post('/', async (request, reply) => {
     const bodySchema = z.object({
       orderId: z.string().uuid(),
@@ -20,11 +22,12 @@ export default async function feedbackRoutes(app: FastifyInstance) {
       where: { id: body.orderId, customerAccessToken: body.token },
       select: {
         id: true,
+        orderNo: true,
         storeId: true,
         paymentStatus: true,
         customerPhone: true,
         customerName: true,
-        feedback: { select: { id: true } },
+        total: true,
       },
     });
 
@@ -36,22 +39,26 @@ export default async function feedbackRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: 'Feedback can only be given for paid orders.' });
     }
 
-    if (order.feedback) {
+    const existing = await prisma.feedback.findUnique({ where: { orderId: body.orderId }, select: { id: true } });
+    if (existing) {
       return reply.status(409).send({ success: false, error: 'Feedback already submitted for this order.' });
     }
 
     const feedback = await prisma.feedback.create({
       data: {
         orderId: order.id,
+        orderNo: order.orderNo,
         storeId: order.storeId,
         rating: body.rating,
         comment: body.comment || null,
         customerPhone: order.customerPhone,
         customerName: order.customerName,
+        orderTotal: order.total,
       },
       select: {
         id: true,
         orderId: true,
+        orderNo: true,
         rating: true,
         comment: true,
         createdAt: true,
@@ -80,7 +87,7 @@ export default async function feedbackRoutes(app: FastifyInstance) {
 
     const feedback = await prisma.feedback.findUnique({
       where: { orderId: params.orderId },
-      select: { id: true, rating: true, comment: true, createdAt: true },
+      select: { id: true, rating: true, comment: true, createdAt: true, orderNo: true },
     });
 
     return { success: true, data: feedback }; // null if not given yet

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { formatPrice } from '@/lib/utils';
-import { Star, MessageSquare, Filter, Calendar, User, Phone, ShoppingBag, TrendingUp } from 'lucide-react';
+import { Star, MessageSquare, Calendar, User, Phone, ShoppingBag, TrendingUp } from 'lucide-react';
 
 interface AdminFeedbacksProps {
   storeId: string;
@@ -9,21 +9,25 @@ interface AdminFeedbacksProps {
 
 interface FeedbackItem {
   id: string;
+  orderId: string;
+  orderNo: string;
   rating: number;
   comment?: string;
   createdAt: string;
   customerPhone?: string;
   customerName?: string;
+  orderTotal?: number;
   storeId: string;
-  order: {
+  store: { name: string };
+  // Legacy nested for backward compat if exists
+  order?: {
     orderNo: string;
     customerPhone: string;
     customerName?: string;
     total: number;
-    paymentMethod: string;
+    paymentMethod?: string;
     createdAt: string;
   };
-  store: { name: string };
 }
 
 export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
@@ -35,8 +39,20 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
   const [page, setPage] = useState(1);
   const [ratingFilter, setRatingFilter] = useState<number | ''>('');
   const [daysFilter, setDaysFilter] = useState(30);
+  const [currentStoreId, setCurrentStoreId] = useState(storeId);
 
   const limit = 20;
+
+  // Track store change – reset and reload
+  useEffect(() => {
+    if (storeId !== currentStoreId) {
+      setCurrentStoreId(storeId);
+      setPage(1);
+      setFeedbacks([]);
+      setTotal(0);
+      setLoading(true);
+    }
+  }, [storeId, currentStoreId]);
 
   const loadFeedbacks = useCallback(async () => {
     if (!storeId) return;
@@ -68,8 +84,10 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
       const res = await api.get('/admin/feedbacks/stats', { params: { storeId, days: daysFilter } });
       const data = res.data.data;
       if (daysFilter !== 0) {
-        setAverage(data.average || 0);
+        // if days filter not all time, stats reflect filtered avg, but we keep feedbacks avg separately?
+        // For simplicity, average already from feedbacks endpoint; stats endpoint can still update if needed.
       }
+      setAverage(data.average || average);
     } catch {}
   }, [storeId, daysFilter]);
 
@@ -85,6 +103,13 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
     loadStats();
   }, [loadStats]);
 
+  // Also reload whenever storeId changes even if page is already 1
+  useEffect(() => {
+    if (storeId) {
+      loadFeedbacks();
+    }
+  }, [storeId]);
+
   const totalFeedbacks = Object.values(distribution).reduce((a,b) => a+b, 0);
 
   return (
@@ -93,8 +118,9 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-amber-400" /> Customer Feedbacks
+            <span className="ml-2 text-[10px] bg-gray-800 border border-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{storeId.slice(0,8)}... • {currentStoreId === storeId ? 'synced' : 'switching'}</span>
           </h2>
-          <p className="text-xs text-gray-400 mt-1">Feedback submitted by customers for their orders – visible after 24h order history action</p>
+          <p className="text-xs text-gray-400 mt-1">Feedback submitted by customers for their orders – no foreign key to orders table, easy cleanup. Showing for selected store only.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select value={daysFilter} onChange={e => setDaysFilter(Number(e.target.value))} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200">
@@ -125,7 +151,7 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
               {[1,2,3,4,5].map(s => <Star key={s} className={`w-4 h-4 ${s <= Math.round(average) ? 'text-amber-400 fill-amber-400' : 'text-gray-600'}`} />)}
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">{total} total feedbacks</p>
+          <p className="text-xs text-gray-500 mt-1">{total} total feedbacks for this store</p>
         </div>
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
           <div className="text-xs text-gray-400 uppercase font-semibold tracking-widest flex items-center gap-2"><Star className="w-4 h-4 text-green-400" /> Distribution</div>
@@ -151,7 +177,7 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
             <div className="flex justify-between"><span>5★ Positive</span><span className="font-bold text-green-400">{distribution[5] || 0}</span></div>
             <div className="flex justify-between"><span>1★ Critical</span><span className="font-bold text-red-400">{distribution[1] || 0}</span></div>
             <div className="flex justify-between"><span>Total Reviews</span><span className="font-bold text-white">{totalFeedbacks}</span></div>
-            <div className="pt-2 border-t border-gray-700 text-[11px] text-gray-500">Feedback is one per order and cannot be edited by customer after submission.</div>
+            <div className="pt-2 border-t border-gray-700 text-[11px] text-gray-500">Feedback stored without FK to Order table for easy cleanup. Order deletion doesn't block.</div>
           </div>
         </div>
       </div>
@@ -162,53 +188,60 @@ export default function AdminFeedbacks({ storeId }: AdminFeedbacksProps) {
       ) : feedbacks.length === 0 ? (
         <div className="text-center py-20 bg-gray-800 rounded-xl border border-gray-700">
           <MessageSquare className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400 text-sm font-semibold">No feedbacks found</p>
-          <p className="text-xs text-gray-500 mt-1">When customers rate orders from 24h history, feedbacks will appear here.</p>
+          <p className="text-gray-400 text-sm font-semibold">No feedbacks found for this store</p>
+          <p className="text-xs text-gray-500 mt-1">Switch store selector above – data changes per store. When customers rate orders from 24h history, feedbacks will appear here.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {feedbacks.map(fb => (
-            <div key={fb.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-white text-sm">{fb.order.orderNo}</span>
-                  <span className="flex items-center gap-1">
-                    {[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= fb.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-600'}`} />)}
-                    <span className="ml-1 text-xs font-bold text-amber-300">{fb.rating}/5</span>
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-300 border border-gray-600">{fb.order.paymentMethod}</span>
-                  <span className="text-xs text-gray-500">{new Date(fb.createdAt).toLocaleString('en-IN')}</span>
-                </div>
-                {fb.comment ? (
-                  <div className="mt-3 bg-gray-900 rounded-lg p-3 border border-gray-700 text-sm text-gray-200 leading-relaxed">
-                    "{fb.comment}"
+          {feedbacks.map(fb => {
+            const orderNo = fb.orderNo || fb.order?.orderNo || fb.orderId.slice(0,8);
+            const custPhone = fb.customerPhone || fb.order?.customerPhone || '—';
+            const custName = fb.customerName || fb.order?.customerName || 'Guest';
+            const totalAmt = (fb as any).orderTotal || fb.order?.total || 0;
+            const createdAt = fb.createdAt;
+            return (
+              <div key={fb.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col md:flex-row gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-white text-sm">{orderNo}</span>
+                    <span className="flex items-center gap-1">
+                      {[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= fb.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-600'}`} />)}
+                      <span className="ml-1 text-xs font-bold text-amber-300">{fb.rating}/5</span>
+                    </span>
+                    <span className="text-xs text-gray-500">{new Date(createdAt).toLocaleString('en-IN')}</span>
                   </div>
-                ) : (
-                  <p className="mt-2 text-xs text-gray-500 italic">No comment provided</p>
-                )}
-                <div className="mt-3 flex items-center gap-4 flex-wrap text-xs text-gray-400">
-                  <span className="flex items-center gap-1"><User className="w-3 h-3" /> {fb.customerName || fb.order.customerName || 'Guest'}</span>
-                  <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {fb.customerPhone || fb.order.customerPhone}</span>
-                  <span className="flex items-center gap-1"><ShoppingBag className="w-3 h-3" /> {formatPrice(fb.order.total)}</span>
-                  <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> Ordered {new Date(fb.order.createdAt).toLocaleDateString()}</span>
+                  {fb.comment ? (
+                    <div className="mt-3 bg-gray-900 rounded-lg p-3 border border-gray-700 text-sm text-gray-200 leading-relaxed">
+                      "{fb.comment}"
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-gray-500 italic">No comment provided</p>
+                  )}
+                  <div className="mt-3 flex items-center gap-4 flex-wrap text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><User className="w-3 h-3" /> {custName}</span>
+                    <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {custPhone}</span>
+                    {totalAmt ? <span className="flex items-center gap-1"><ShoppingBag className="w-3 h-3" /> {formatPrice(totalAmt)}</span> : null}
+                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="shrink-0 flex flex-col gap-2 md:w-40">
+                  <div className="text-xs text-gray-500">Store: <span className="text-gray-200 font-medium">{fb.store.name}</span></div>
+                  <div className={`px-3 py-1.5 rounded-full text-center text-xs font-bold border ${
+                    fb.rating >=4 ? 'bg-green-900/30 text-green-300 border-green-800' :
+                    fb.rating >=3 ? 'bg-amber-900/30 text-amber-300 border-amber-800' :
+                    'bg-red-900/30 text-red-300 border-red-800'
+                  }`}>
+                    {fb.rating >=4 ? 'Positive' : fb.rating >=3 ? 'Neutral' : 'Critical'}
+                  </div>
+                  <div className="text-[10px] text-gray-500">ID: {fb.orderId.slice(0,8)}… no FK</div>
                 </div>
               </div>
-              <div className="shrink-0 flex flex-col gap-2 md:w-40">
-                <div className="text-xs text-gray-500">Store: <span className="text-gray-200 font-medium">{fb.store.name}</span></div>
-                <div className={`px-3 py-1.5 rounded-full text-center text-xs font-bold border ${
-                  fb.rating >=4 ? 'bg-green-900/30 text-green-300 border-green-800' :
-                  fb.rating >=3 ? 'bg-amber-900/30 text-amber-300 border-amber-800' :
-                  'bg-red-900/30 text-red-300 border-red-800'
-                }`}>
-                  {fb.rating >=4 ? 'Positive' : fb.rating >=3 ? 'Neutral' : 'Critical'}
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Pagination */}
           <div className="flex items-center justify-between pt-4">
-            <p className="text-xs text-gray-400">Page {page} • {total} feedbacks</p>
+            <p className="text-xs text-gray-400">Page {page} • {total} feedbacks • Store {storeId.slice(0,6)}</p>
             <div className="flex gap-2">
               <button disabled={page<=1} onClick={()=> setPage(p=> Math.max(1,p-1))} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-white disabled:opacity-40">Prev</button>
               <button disabled={feedbacks.length < limit} onClick={()=> setPage(p=> p+1)} className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-white disabled:opacity-40">Next</button>

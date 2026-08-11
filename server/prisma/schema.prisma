@@ -71,7 +71,6 @@ model Order {
   sgstAmount        Decimal       @db.Decimal(10, 2)
   total             Decimal       @db.Decimal(10, 2)
   items             OrderItem[]
-  feedback          Feedback?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   store             Store         @relation(fields: [storeId], references: [id])
@@ -85,19 +84,21 @@ model Order {
 model Feedback {
   id            String   @id @default(uuid())
   orderId       String   @unique
+  orderNo       String
   storeId       String
   rating        Int
   comment       String?  @db.Text
   customerPhone String?
   customerName  String?
+  orderTotal    Decimal? @db.Decimal(10, 2)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId, createdAt])
   @@index([rating])
   @@index([createdAt])
+  @@index([orderNo])
 }
 
 model DailyOrderSequence {

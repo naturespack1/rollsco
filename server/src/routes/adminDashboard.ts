@@ -169,18 +169,25 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     const where: any = { storeId };
     if (requestedStatuses.length > 0) where.status = { in: requestedStatuses };
 
-      const [orders, total] = await Promise.all([
-        prisma.order.findMany({
-          where,
-          include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true, comment: true } } },
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        prisma.order.count({ where }),
-      ]);
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.order.count({ where }),
+    ]);
 
-    return { success: true, data: { orders, total, page, limit } };
+    // Fetch feedback ratings separately (no FK)
+    const orderIds = orders.map(o => o.id);
+    const feedbackMap = new Map(
+      (await prisma.feedback.findMany({ where: { orderId: { in: orderIds } }, select: { orderId: true, rating: true, comment: true } })).map(f => [f.orderId, f])
+    );
+    const ordersWithFeedback = orders.map(o => ({ ...o, feedback: feedbackMap.get(o.id) || null }));
+
+    return { success: true, data: { orders: ordersWithFeedback, total, page, limit } };
   });
 
   app.post('/orders/sync', { preHandler: [authenticate] }, async (request, reply) => {
@@ -204,11 +211,17 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
 
     const orders = await prisma.order.findMany({
       where,
-      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true } } },
+      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
-    return { success: true, data: { orders, syncTime: new Date().toISOString() } };
+    const orderIds = orders.map(o => o.id);
+    const feedbackMap = new Map(
+      (await prisma.feedback.findMany({ where: { orderId: { in: orderIds } }, select: { orderId: true, rating: true } })).map(f => [f.orderId, f])
+    );
+    const ordersWithFeedback = orders.map(o => ({ ...o, feedback: feedbackMap.get(o.id) || null }));
+
+    return { success: true, data: { orders: ordersWithFeedback, syncTime: new Date().toISOString() } };
   });
 
   app.get('/orders/new', { preHandler: [authenticate] }, async (request, reply) => {
@@ -227,7 +240,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
 
     const orders = await prisma.order.findMany({
       where,
-      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true } } },
+      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -477,7 +490,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     return reply.send(buffer);
   });
 
-  // ─── Feedbacks ───
+  // ─── Feedbacks (no FK to Order for easy cleanup) ───
 
   app.get('/feedbacks', { preHandler: [authenticate] }, async (request, reply) => {
     const query = request.query as any;
@@ -503,7 +516,6 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       prisma.feedback.findMany({
         where,
         include: {
-          order: { select: { orderNo: true, customerPhone: true, customerName: true, total: true, paymentMethod: true, createdAt: true } },
           store: { select: { name: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -561,7 +573,6 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
         where,
         orderBy: { createdAt: 'desc' },
         take: 5,
-        include: { order: { select: { orderNo: true } } },
       }),
     ]);
 
@@ -600,8 +611,11 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       select: {
         id: true,
         name: true,
+        address: true,
         googleReviewUrl: true,
         googleMapsUrl: true,
+        isOpen: true,
+        acceptingOrders: true,
       },
     });
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertCircle, LoaderCircle, PauseCircle, PlayCircle, Power, Store as StoreIcon, Link as LinkIcon, Save } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Store } from '@/types';
@@ -20,6 +20,14 @@ export default function StoreStatusControls({ store, onStoreUpdated }: StoreStat
   const [reviewSuccess, setReviewSuccess] = useState('');
   const admin = useAdminStore(s => s.admin);
   const isSuperAdmin = admin?.role === 'SUPER_ADMIN';
+
+  // Fix: sync review URLs when store changes (admin dashboard store switch)
+  useEffect(() => {
+    setReviewUrl(store.googleReviewUrl || '');
+    setMapsUrl(store.googleMapsUrl || '');
+    setError('');
+    setReviewSuccess('');
+  }, [store.id, store.googleReviewUrl, store.googleMapsUrl]);
 
   const saveReviewUrls = async () => {
     setSavingReview(true);
