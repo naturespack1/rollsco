@@ -34,7 +34,7 @@ api.interceptors.response.use(
     const isAdminRequest = String(err.config?.url || '').startsWith('/admin');
     if (err.response?.status === 401 && isAdminRequest) {
       useAdminStore.getState().logout();
-      window.location.href = '/admin/login';
+      window.location.href = '/adminlog/login';
     }
     return Promise.reject(err);
   }

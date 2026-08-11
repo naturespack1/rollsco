@@ -15,7 +15,7 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const from = (location.state as any)?.from?.pathname || '/admin';
+  const from = (location.state as any)?.from?.pathname || '/adminlog';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

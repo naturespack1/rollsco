@@ -4,9 +4,9 @@
 > **Project type:** Full-stack restaurant ordering monorepo  
 > **Frontend:** React 18 + Vite + TypeScript + Tailwind + Zustand  
 > **Backend:** Fastify 4 + TypeScript + Prisma + PostgreSQL  
-> **Business:** Pickup-only Roll's & Co. ordering app with online Razorpay checkout, in-store paid order creation, GST bills, SMS notifications, thermal printing, stock/menu/admin management, and reporting.
+> **Business:** Pickup-only Roll's & Co. ordering app with online Razorpay checkout, in-store paid order creation, GST bills, SMS notifications, thermal printing, stock/menu/admin management, reporting, Google Maps rating and customer feedback.
 
-This file is intended as the first file an AI/code agent should read before changing the code. It documents the **current codebase**, including implementation details that may differ from older README notes.
+This file is intended as the first file an AI/code agent should read before changing the code. It documents the **current codebase**, including implementation details that may differ from older README notes. **Last Updated: 2026-08-11 — includes adminlog rename, feedback without FK, store review URLs.**
 
 ---
 
@@ -21,16 +21,18 @@ This file is intended as the first file an AI/code agent should read before chan
 6. Client uses an `Idempotency-Key` stored in cart state to avoid duplicate checkout orders on retry.
 7. Success stores full paid order locally under `rolls-customer-orders`, clears cart and selected store, returns user to StoreSelector with a success banner, and auto-downloads HTML bill.
 8. Receipts require both `orderId` and `customerAccessToken`: `/success/:orderId?token=...`.
+9. **24h Order History:** `StoreSelector` shows "Your Orders (Last 24 Hours)" from `useCustomerOrdersStore`. Each order card is clickable and now exposes 2 actions: **Rate on Google Maps** (opens store's `googleReviewUrl`) and **Give Feedback** (1-5 stars + comment, stored in new `Feedback` table without FK to Order for easy cleanup). After feedback, button shows "Feedback Given" and duplicate submission is blocked.
 
 ### Admin side
-1. `/admin/login` authenticates email/password and persists JWT + admin data in `rolls-admin`.
-2. `/admin/*` is wrapped by `ProtectedRoute` and lazy-loads `AdminDashboard`.
-3. `AdminDashboard` loads stores from public `/api/stores`, filters by admin role/store assignments, and exposes tabs:
-   - **Manager tabs:** New Order, Orders, Stock
+1. `/adminlog/login` authenticates email/password and persists JWT + admin data in `rolls-admin`. **Note: URL changed from `/admin` to `/adminlog` on 2026-08-11.** Legacy `/admin/*` redirects to `/adminlog/*` via React Router.
+2. `/adminlog/*` is wrapped by `ProtectedRoute` and lazy-loads `AdminDashboard`. `Header` hides cart UI when path starts with `/adminlog` (also checks `/admin` legacy).
+3. `AdminDashboard` loads stores from public `/api/stores` (now includes `googleReviewUrl`, `googleMapsUrl`), filters by admin role/store assignments, and exposes tabs:
+   - **Manager tabs:** New Order, Orders, Stock, **Feedbacks**
    - **Super Admin extra tabs:** Menu, Reports, Staff
-4. Dashboard includes store status controls (open/closed and accepting/paused) above all tabs.
-5. Admin orders use local buffered status updates and manual/auto sync.
+4. Dashboard includes `StoreStatusControls` (open/closed and accepting/paused) plus **Google Review Settings** (Super Admin only) to edit `googleReviewUrl`/`googleMapsUrl` per store via `PATCH /api/admin/stores/:storeId/review-url`. The component now syncs via `useEffect` on `store.id` change to fix previous bug where URLs didn't change on store switch.
+5. Admin orders use local buffered status updates and manual/auto sync. Orders fetch now also merges feedback rating via separate query (no FK).
 6. Admin can create **instore orders** that are immediately `PAID` with `paymentMethod=INSTORE` and do not open Razorpay.
+7. **Feedbacks tab:** `AdminFeedbacks` loads feedbacks per selected store via `/api/admin/feedbacks`, shows average, distribution, insights, filters (rating, days), pagination. Changing store clears old list and refetches – fixed previous caching bug.
 
 ---
 
@@ -46,6 +48,8 @@ This file is intended as the first file an AI/code agent should read before chan
 - **Order status pipeline:** `CREATED -> PROCESSING -> DELIVERED`. Admin can set status with dropdown; updates are buffered locally until sync.
 - **Payment methods:** `ONLINE` for Razorpay, `INSTORE` for admin-created counter orders.
 - **Receipt privacy:** customer-visible order status/receipt route requires UUID order id plus secret `customerAccessToken`.
+- **Feedback:** one feedback per order, 1-5 rating, optional comment. No foreign key to Order table (plain `orderId` + `orderNo` + `orderTotal` stored) to allow easy order table cleanup. After feedback, same order cannot submit again (unique `orderId` + 409 guard).
+- **Google Review:** per-store `googleReviewUrl` (direct writereview link) and `googleMapsUrl` (fallback). Customer taps "Rate on Google" in 24h history to open review page.
 
 ---
 
@@ -63,26 +67,34 @@ rollsco/
 │   │   ├── manifest.json
 │   │   └── images/               # rolls.jpg, burgers.jpg, beverages.jpg, extras.jpg, combos.jpg
 │   └── src/
-│       ├── App.tsx               # route switch and selected-store guard
+│       ├── App.tsx               # route switch and selected-store guard (now /adminlog)
 │       ├── main.tsx              # BrowserRouter + React root
 │       ├── index.css             # Tailwind base/components/utilities
 │       ├── components/           # reusable customer/admin UI and print components
+│       │   ├── OrderFeedbackModal.tsx # NEW: Google rate + feedback modal
+│       │   └── StoreStatusControls.tsx # now includes Google Review Settings + useEffect sync fix
 │       ├── lib/                  # api client, razorpay loader, print helpers, utils
 │       ├── pages/                # customer pages + admin pages
+│       │   └── admin/AdminFeedbacks.tsx # NEW: feedback listing tab
 │       ├── store/                # Zustand persisted stores
-│       └── types/index.ts        # shared frontend interfaces
+│       └── types/index.ts        # shared frontend interfaces (Store now has googleReviewUrl)
 └── server/
     ├── package.json
     ├── prisma/
-    │   ├── schema.prisma         # DB schema
-    │   ├── seed.ts               # Patna demo stores/menu/default admin
+    │   ├── schema.prisma         # DB schema (now includes Feedback without Order FK)
+    │   ├── seed.ts               # Patna demo stores/menu/default admin + googleReviewUrl placeholders
     │   └── migrations/
     └── src/
-        ├── index.ts              # Fastify bootstrap + maintenance timer
+        ├── index.ts              # Fastify bootstrap + maintenance timer (now registers feedbackRoutes)
         ├── config.ts             # env reader/production validation
         ├── prismaClient.ts       # Prisma singleton
         ├── plugins/              # auth, error handler, checkout abuse guard
         ├── routes/               # public and admin route modules
+        │   ├── feedback.ts       # NEW: public feedback submit + fetch
+        │   ├── store.ts          # now selects googleReviewUrl/mapsUrl
+        │   ├── order.ts          # status now fetches feedback separately (no FK)
+        │   ├── adminDashboard.ts # now includes /feedbacks, /feedbacks/stats, /stores/:id/review-url + orders with feedback map
+        │   └── ...
         ├── services/             # order/payment/sms/export/reconciliation logic
         └── utils/                # GST calculation, order number generation
 ```
@@ -156,8 +168,8 @@ VITE_API_URL=https://rollsco-server.vercel.app/api
 
 ### Core models
 - `Store`
-  - `id`, `name`, `address`, `isOpen`, `acceptingOrders`, `createdAt`
-  - Relations: `items`, `orders`, `adminStores`
+  - `id`, `name`, `address`, `googleReviewUrl String?`, `googleMapsUrl String?`, `isOpen`, `acceptingOrders`, `createdAt`
+  - Relations: `items`, `orders`, `feedbacks`, `adminStores`
 - `Category`
   - `id`, `name` unique, `sort`
 - `Item`
@@ -174,6 +186,11 @@ VITE_API_URL=https://rollsco-server.vercel.app/api
   - `idempotencyKey` unique nullable for online checkout retry safety
   - Monetary fields: `subtotal`, `cgstAmount`, `sgstAmount`, `total`
   - Indexes: `[storeId,status,createdAt]`, `[storeId,paymentStatus,createdAt]`, `[paymentStatus,createdAt]`
+  - **No relation to Feedback** – intentional to allow order cleanup
+- `Feedback` **NEW – no FK to Order for easy cleanup**
+  - `id`, `orderId String @unique` (plain reference, no @relation), `orderNo String` (denormalized for display after order deletion), `storeId`, `rating Int 1..5`, `comment String? @db.Text`, `customerPhone`, `customerName`, `orderTotal Decimal?`, `createdAt`, `updatedAt`
+  - Relation only to `Store` with `onDelete: Cascade`
+  - Indexes: `[storeId,createdAt]`, `[rating]`, `[createdAt]`, `[orderNo]`
 - `OrderItem`
   - Snapshot fields: `itemName`, `quantity`, `unitPrice`, `totalPrice`, `basePrice`, `baseTotal`, `gstRate`
   - `unitPrice` and `totalPrice` are GST-inclusive.
@@ -187,10 +204,10 @@ VITE_API_URL=https://rollsco-server.vercel.app/api
   - Records Razorpay webhooks and client verification events with `dedupeKey` unique, raw JSON payload, status, processedAt
 
 ### Seed data (`server/prisma/seed.ts`)
-- Deletes orders/items/categories/admins/stores before reseeding.
+- Deletes `feedback` first, then orders/items/categories/admins/stores before reseeding.
 - Stores:
-  - `Roll's & Co. Boring Road`, address `Boring Road, Patna`
-  - `Roll's & Co. Kankarbagh`, address `Kankarbagh, Patna`
+  - `Roll's & Co. Boring Road`, address `Boring Road, Patna`, `googleReviewUrl=https://search.google.com/local/writereview?placeid=ChIJ_example_boring_road`, `googleMapsUrl=https://maps.google.com/?q=Rolls+%26+Co+Boring+Road+Patna`
+  - `Roll's & Co. Kankarbagh`, address `Kankarbagh, Patna`, `googleReviewUrl=https://search.google.com/local/writereview?placeid=ChIJ_example_kankarbagh`, `googleMapsUrl=https://maps.google.com/?q=Rolls+%26+Co+Kankarbagh+Patna`
 - Default admin:
   - email `admin@rollsandco.com`
   - password `admin123`
@@ -214,6 +231,7 @@ VITE_API_URL=https://rollsco-server.vercel.app/api
   - `/api/stores` -> `store.ts`
   - `/api/menu` -> `menu.ts`
   - `/api/orders` -> `order.ts`
+  - `/api/feedback` -> `feedback.ts` **NEW**
   - `/api/webhooks` -> `webhook.ts`
   - `/api/admin/auth` -> `adminAuth.ts`
   - `/api/admin` -> `adminDashboard.ts`
@@ -248,11 +266,13 @@ All successful route handlers generally return `{ success: true, data: ... }` ex
 ### Public APIs
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/stores` | List stores, sorted with open+accepting stores first. |
-| GET | `/api/menu/:storeId` | Public menu for one store, available items only, grouped categories plus virtual `Most loved`. Returns store too. |
+| GET | `/api/stores` | List stores, sorted with open+accepting stores first. Now includes `googleReviewUrl`, `googleMapsUrl`. |
+| GET | `/api/menu/:storeId` | Public menu for one store, available items only, grouped categories plus virtual `Most loved`. Returns store too (now with review URLs). |
 | POST | `/api/orders/create` | Online checkout. Requires `Idempotency-Key` UUID header and body with store/customer/items. Creates pending order + Razorpay order. |
-| GET | `/api/orders/status/:orderId?token=<customerAccessToken>` | Customer-visible order/receipt status. Requires token. Includes store and item snapshots. |
+| GET | `/api/orders/status/:orderId?token=<customerAccessToken>` | Customer-visible order/receipt status. Requires token. Includes store (with review URLs) and item snapshots + feedback (fetched separately, no FK). |
 | POST | `/api/orders/verify` | Client-side Razorpay signature verification fallback. Requires checkout abuse guard. |
+| POST | `/api/feedback` | **NEW** Submit feedback. Body `{ orderId, token, rating 1..5, comment? }`. Validates token, PAID only, 409 if already exists. Stores `orderNo` + `orderTotal` for later display after order deletion. No FK to Order. |
+| GET | `/api/feedback/order/:orderId?token=...` | **NEW** Get existing feedback for an order to check if already given. |
 | POST | `/api/webhooks/razorpay` | Razorpay webhook with raw body signature verification and payment event dedupe. |
 
 ### Admin auth APIs
@@ -264,10 +284,11 @@ All successful route handlers generally return `{ success: true, data: ... }` ex
 ### Admin dashboard APIs (Bearer JWT)
 | Method | Path | Role/access | Purpose |
 |---|---|---|---|
-| PATCH | `/api/admin/stores/:storeId/status` | assigned store | Update `isOpen` and/or `acceptingOrders`. |
+| PATCH | `/api/admin/stores/:storeId/status` | assigned store | Update `isOpen` and/or `acceptingOrders`. Now returns google URLs too. |
+| PATCH | `/api/admin/stores/:storeId/review-url` | **NEW**, SUPER_ADMIN only | Update `googleReviewUrl` and/or `googleMapsUrl`. Body `{ googleReviewUrl?, googleMapsUrl? }`. |
 | POST | `/api/admin/orders/instore` | assigned store | Create paid in-store order (`PAID`, `INSTORE`) without Razorpay. |
-| GET | `/api/admin/orders?storeId=&status=&statuses=&page=&limit=` | assigned store | Paginated order list. `statuses` supports comma-separated statuses. |
-| POST | `/api/admin/orders/sync?storeId=` | assigned store | Apply buffered status updates and return updated orders since optional `lastSync`. |
+| GET | `/api/admin/orders?storeId=&status=&statuses=&page=&limit=` | assigned store | Paginated order list. `statuses` supports comma-separated statuses. Now merges feedback rating via separate query (no FK). |
+| POST | `/api/admin/orders/sync?storeId=` | assigned store | Apply buffered status updates and return updated orders since optional `lastSync`. Now includes feedback map. |
 | GET | `/api/admin/orders/new?storeId=&after=` | assigned store | Orders created after timestamp or last 5 minutes. |
 | POST | `/api/admin/stock` | assigned store of item | Update stock by `{ itemId, stock }`. |
 | GET | `/api/admin/menu/:storeId` | assigned store | Full admin menu, flattened `categoryName`, numeric prices/GST. |
@@ -281,6 +302,8 @@ All successful route handlers generally return `{ success: true, data: ... }` ex
 | GET | `/api/admin/bestsellers?storeId=&days=` | SUPER_ADMIN | Top 10 sold items; `days=0` means all time. |
 | GET | `/api/admin/payment-summary?storeId=&days=` | SUPER_ADMIN | Paid totals grouped by `ONLINE` vs `INSTORE`. |
 | GET | `/api/admin/export/daily?storeId=&date=` | SUPER_ADMIN | Downloads Excel `.xlsx` daily sales report. |
+| GET | `/api/admin/feedbacks?storeId=&page=&limit=&rating=&from=&to=` | **NEW**, assigned store (Manager + Super Admin) | Paginated feedbacks for selected store, average + distribution. No FK to Order – easy cleanup. Filter by rating, date range. |
+| GET | `/api/admin/feedbacks/stats?storeId=&days=` | **NEW**, assigned store | Stats: avg rating, total, distribution, recent 5 feedbacks. Used by dashboard. |
 
 ### Store access enforcement
 - `SUPER_ADMIN` can access all stores.
@@ -344,6 +367,11 @@ Main function: `createPendingOrder(storeId, phone, name, message, cartItems, ide
 - Restores stock for every order item.
 - `expireOldPendingOrders` finds online pending orders older than 15 minutes and fails/restores them.
 
+### Feedback Service — logic inside `feedback.ts` route (no separate service file yet)
+- `POST /api/feedback` validates order + token, PAID only, checks existing feedback via `findUnique(orderId)`, creates feedback with `orderNo`, `orderTotal`, phone/name denormalized.
+- No foreign key to Order means orders can be deleted without violating FK; feedback remains with `orderNo` for admin reporting.
+- `GET /api/feedback/order/:orderId` validates token then returns feedback or null.
+
 ### Payment service — `paymentService.ts`
 - Lazy initializes Razorpay client using env keys.
 - Creates Razorpay orders in paise.
@@ -377,11 +405,13 @@ Defined in `client/src/App.tsx`:
 | `/` | `StoreSelector` or `MenuPage` | If `selectedStore` exists, show menu; otherwise store selector. |
 | `/checkout` | `CheckoutPage` | Requires selected store and non-empty cart; else redirects `/`. |
 | `/success/:orderId` | `OrderSuccess` | Requires `?token=<customerAccessToken>`. |
-| `/admin/login` | `AdminLogin` | Public admin login. |
-| `/admin/*` | `ProtectedRoute` -> lazy `AdminDashboard` | Requires JWT token in admin store. |
+| `/adminlog/login` | `AdminLogin` | **NEW**: changed from `/admin/login` to `/adminlog/login` on 2026-08-11. Public admin login. |
+| `/adminlog/*` | `ProtectedRoute` -> lazy `AdminDashboard` | **NEW**: changed from `/admin/*` to `/adminlog/*`. Requires JWT token in admin store. Includes legacy redirects from `/admin/*` -> `/adminlog`. |
+| `/admin/login` | Redirect -> `/adminlog/login` | Legacy redirect. |
+| `/admin/*` | Redirect -> `/adminlog` | Legacy redirect. |
 | `*` | redirect `/` | Catch-all. |
 
-`Header` is always rendered but hides itself for admin routes.
+`Header` is always rendered but checks `pathname.startsWith('/adminlog') || startsWith('/admin')` to hide cart/store UI for admin routes.
 
 ---
 
@@ -389,7 +419,7 @@ Defined in `client/src/App.tsx`:
 
 ### `useStoreStore.ts`
 - Persist key: `quickbite-store`.
-- State: `selectedStore`.
+- State: `selectedStore` (now includes `googleReviewUrl`, `googleMapsUrl` optional).
 - Actions: `setSelectedStore`, `clearStore`.
 
 ### `useCartStore.ts`
@@ -409,7 +439,7 @@ Defined in `client/src/App.tsx`:
 - Persist key: check file before changing (admin JWT/admin profile persistence).
 - Stores JWT token and admin profile.
 - `api.ts` reads token from here and adds `Authorization` header.
-- `logout()` clears auth and is called automatically on admin 401 responses.
+- `logout()` clears auth and is called automatically on admin 401 responses (now redirects to `/adminlog/login`).
 
 ### `useAdminCacheStore.ts`
 - Persist key: `rolls-admin-cache`, version 2.
@@ -428,9 +458,10 @@ Defined in `client/src/App.tsx`:
 ### `useCustomerOrdersStore.ts`
 - Persist key: `rolls-customer-orders`.
 - Holds completed customer orders locally for 24h.
-- Drives green success banner and “Your Orders (Last 24 Hours)” on `StoreSelector`.
+- Drives green success banner and "Your Orders (Last 24 Hours)" on `StoreSelector`.
 - Stores `customerAccessToken` with each order so receipt link works from local history.
 - Purges stale orders when adding a new order.
+- New: `StoreSelector` now also fetches feedback status per order via `/api/feedback/order/:id?token=` and displays badge.
 
 ---
 
@@ -440,7 +471,7 @@ Defined in `client/src/App.tsx`:
 - Axios instance base URL: `VITE_API_URL || '/api'`.
 - Adds admin bearer token if available.
 - Adds generated `X-Device-Id` stored in localStorage key `rolls-device-id`.
-- On 401 for `/admin...` URLs, logs out and redirects to `/admin/login`.
+- On 401 for `/admin...` URLs (backend paths `/api/admin/...`), logs out and redirects to `/adminlog/login` (changed from `/admin/login`).
 
 ### `lib/razorpay.ts`
 - Dynamically loads `https://checkout.razorpay.com/v1/checkout.js` with id `razorpay-script`.
@@ -464,12 +495,19 @@ Defined in `client/src/App.tsx`:
 - Also exports `openCustomerBillPrint` and `downloadBillHtml` used by checkout/store selector/success page.
 - Generates customer-facing GST invoice and supports auto-print.
 
+### `components/OrderFeedbackModal.tsx` **NEW**
+- Props: `order`, `isOpen`, `onClose`, `stores` list, `onFeedbackSubmitted`
+- Shows order summary + 2 cards:
+  - **Rate on Google Maps:** resolves `order.store.googleReviewUrl` || store list `googleReviewUrl` || `googleMapsUrl` || fallback Google search URL, opens new tab.
+  - **Feedback:** If existing feedback, shows stars, comment, timestamp, blocking message. If not, shows "Give Feedback" -> star selector 1-5 + hover, comment textarea max 1000, submit via `POST /api/feedback` with token, handles 409 duplicate.
+- Fetches existing feedback via `GET /api/feedback/order/:orderId?token=` on open if not already in order.
+
 ---
 
 ## 13. Customer Feature / Component Details
 
 ### `StoreSelector.tsx`
-- Fetches `/api/stores`.
+- Fetches `/api/stores` (now includes `googleReviewUrl`).
 - Sorts open+accepting stores first.
 - Shows brand hero cards with images and taglines.
 - Disables closed/paused stores.
@@ -478,7 +516,13 @@ Defined in `client/src/App.tsx`:
   - `useCartStore.setStoreId(store.id)`
   - navigates `/` (which then renders `MenuPage`)
 - Shows order success banner for the last order added to `useCustomerOrdersStore`.
-- Shows “Your Orders (Last 24 Hours)” list with order number, payment status, store, first 3 item lines, total, bill and receipt buttons.
+- Shows "Your Orders (Last 24 Hours)" list:
+  - Now clickable card (group hover) with orderNo, paymentStatus, feedback badge if exists, date, store, first 3 items.
+  - Fresh order (15 min) shows prep time banner.
+  - Buttons: Bill, Receipt (stopPropagation), **NEW: Rate on Google** (blue, opens review URL), **Give Feedback** (amber, or green disabled "Feedback Given" if already submitted).
+  - Click card or Feedback button opens `OrderFeedbackModal`.
+  - Fetches feedback status per recent order via `GET /api/feedback/order/:id?token=` and stores in `feedbackStatusMap`.
+  - Manages `selectedOrder` + `showFeedbackModal` state.
 
 ### `MenuPage.tsx`
 - On selected store:
@@ -493,7 +537,7 @@ Defined in `client/src/App.tsx`:
   5. Beverage
   6. Extra
   7. other
-- It removes server-provided “Most loved” category then rebuilds it from `isBestseller` items to avoid duplication.
+- It removes server-provided "Most loved" category then rebuilds it from `isBestseller` items to avoid duplication.
 - Uses `IntersectionObserver` to highlight active category.
 - Uses `CategoryNav`, `MenuItemCard`, `CartDrawer`, `MobileCart`.
 
@@ -534,12 +578,13 @@ Defined in `client/src/App.tsx`:
 
 ### `OrderSuccess.tsx`
 - Uses `orderId` route param and `token` query param.
-- Fetches `/orders/status/:orderId?token=...`.
+- Fetches `/orders/status/:orderId?token=...` (now includes feedback).
 - Auto-prints customer bill after 1.5s when order loads.
 - Shows order number, 5–10 min prep estimate, item/GST breakdown, pickup/store info, preparation note, print/download actions.
 
 ### `Header.tsx`
-- Hidden on admin routes.
+- Checks `location.pathname.startsWith('/adminlog') || startsWith('/admin')` to detect admin routes (updated for rename).
+- Hidden cart UI on admin routes.
 - Shows brand, selected store, cart icon/count.
 - Store name can be clicked to change store; this clears selected store and cart.
 
@@ -551,10 +596,10 @@ Defined in `client/src/App.tsx`:
 - Dark login UI.
 - Calls `/api/admin/auth/login`.
 - Saves `token` and `admin` into `useAdminStore`.
-- Redirects to `/admin` after login.
+- Redirects to `/adminlog` after login (changed from `/admin`). Reads `from` state or defaults to `/adminlog`.
 
 ### `ProtectedRoute.tsx`
-- If no token, redirects to `/admin/login` and preserves location state.
+- If no token, redirects to `/adminlog/login` (changed from `/admin/login`) and preserves location state.
 
 ### `AdminDashboard.tsx`
 - Shell layout with desktop sidebar and mobile overlay nav.
@@ -563,16 +608,25 @@ Defined in `client/src/App.tsx`:
   - `instoreOrder` -> `AdminCreateOrder`
   - `orders` -> `AdminOrders`
   - `stock` -> `AdminStock`
+  - `feedbacks` -> `AdminFeedbacks` **NEW** – available to Manager and Super Admin
   - `menu` -> `AdminMenu` (Super Admin only)
   - `reports` -> `AdminReports` (Super Admin only)
   - `staff` -> lazy `AdminStaff` (Super Admin only)
 - Always displays `StoreStatusControls` for current selected store.
 - Clear Cache button calls `useAdminCacheStore.invalidateAll()` and reloads.
+- Logout navigates to `/adminlog/login`.
+- Fixed: store list includes google URLs.
 
 ### `StoreStatusControls.tsx`
 - Calls `PATCH /api/admin/stores/:storeId/status`.
 - Can toggle `isOpen` (store open/closed) and `acceptingOrders` (pause/accept new customer orders).
 - Shows current customer availability status.
+- **NEW: Google Review Settings** (Super Admin only):
+  - Inputs for `googleReviewUrl` (direct review link) and `googleMapsUrl` (fallback)
+  - Save via `PATCH /api/admin/stores/:storeId/review-url`
+  - Shows success message.
+  - **Fix:** `useEffect` syncs `reviewUrl`/`mapsUrl` state when `store.id` or google URLs change – fixes bug where switching store didn't update inputs.
+- Error and warning banners included.
 
 ### `AdminCreateOrder.tsx`
 - Admin/counter order entry tab.
@@ -595,15 +649,12 @@ Defined in `client/src/App.tsx`:
 - Sync button:
   - POSTs `/admin/orders/sync` with pending updates and optional `lastSync`.
   - Clears pending updates after successful push.
-  - Fetches full orders afterwards.
+  - Fetches full orders afterwards (now includes feedback rating via map).
 - Auto-sync intervals: manual / 1 min / 3 min / 5 min. Setting persists.
 - Offline behavior: if fetch fails and cache exists, shows cached orders and offline badge.
-- Chef thermal auto-print:
-  - Tracks seen order IDs after first load.
-  - New paid orders are printed automatically if setting enabled.
-  - Multiple new orders print in one popup via `openMultipleChefBillPrint`.
-  - Setting key: `rolls-auto-print-chef` (default true).
+- Chef thermal auto-print: tracks seen order IDs after first load, new paid orders auto-print.
 - Each order row includes `BillPrint` controls and expandable item details/prep note.
+- **Future:** could show feedback badge per order (rating already fetched via feedback map).
 
 ### `BillPrint.tsx`
 - Admin-side print button/component.
@@ -614,43 +665,38 @@ Defined in `client/src/App.tsx`:
 - Cache-first loads admin menu and maps to stock rows.
 - Shows low stock badge when stock <= 5.
 - Allows stock input per item and save.
-- On save:
-  - Optimistically updates UI and `menuCache`.
-  - POSTs `/admin/stock`.
-  - If failure, shows alert and offline badge; current code does not automatically queue stock updates for later server sync.
+- On save optimistically updates UI and menuCache, POSTs `/admin/stock`.
 
 ### `AdminMenu.tsx`
 - Super Admin only.
 - Cache-first loads `/admin/menu/:storeId` and `/admin/categories`.
 - Supports filters: All, Available, Hidden, and by category.
-- Add item:
-  - POST `/admin/items`
-  - fields: name, category, GST-inclusive price, stock, GST rate, HSN, description, image URL, Most loved, Available
-- Edit item:
-  - PUT `/admin/items`
-  - category selector disabled while editing; backend update schema does not accept category changes.
-- Toggle availability:
-  - Optimistically changes UI/cache and PUTs `isAvailable`.
-  - Reverts on failure.
-- Delete item:
-  - DELETE `/admin/items/:itemId` after confirm.
-- Note: if a newly created item from backend lacks flattened `categoryName`, UI may rely on refresh/cache details. Check when modifying add flow.
+- Add/edit/delete items as before.
 
 ### `AdminReports.tsx`
 - Super Admin only.
 - Date picker downloads Excel from `/admin/export/daily`.
-- Range selector (`days=1,7,30,0`) controls both bestsellers and payment collection.
-- Bestsellers use cache-first via `bestsellersCache`.
-- Payment collection calls `/admin/payment-summary` live and shows:
-  - online amount/orders
-  - instore amount/orders
-  - total amount/orders
+- Range selector controls bestsellers and payment collection.
 
 ### `AdminStaff.tsx`
 - Super Admin only.
 - Loads `/admin/admins` and `/stores`.
 - Can create staff/admin with name, email, password, role, and assigned stores.
-- Can delete admins except backend prevents deleting current user.
+- Can delete admins except self.
+
+### `AdminFeedbacks.tsx` **NEW**
+- Available to Manager + Super Admin (store access enforced).
+- Props: `storeId`.
+- State: feedbacks list, loading, total, average, distribution, page, ratingFilter, daysFilter, `currentStoreId` for sync verification.
+- **Fix:** `useEffect` tracks `storeId !== currentStoreId` -> resets page, clears feedbacks, sets loading true, forces reload. Also page reset on filter change and explicit reload on storeId change.
+- Loads via `GET /api/admin/feedbacks?storeId=&page=&limit=&rating=` and `/api/admin/feedbacks/stats?storeId=&days=`.
+- UI:
+  - Header with "Customer Feedbacks" + sync badge + storeId short
+  - Filters: days (All Time/24h/7d/30d) + rating (1-5)
+  - Stats cards: Average Rating with stars, Distribution bars 5..1, Insights (positive/critical/total)
+  - List: orderNo (or orderId short), rating stars, timestamp, comment (or "No comment"), customer name/phone, total, date, store name, badge Positive/Neutral/Critical, ID short with "no FK" hint.
+  - Pagination Prev/Next.
+  - Empty state explicitly says "No feedbacks found for this store" and hints to switch store selector.
 
 ---
 
@@ -663,12 +709,8 @@ Defined in `client/src/App.tsx`:
 
 ### Customer bill
 - Shows GST invoice style details.
-- Uses order snapshot line fields:
-  - `unitPrice`: inclusive unit price
-  - `totalPrice`: inclusive line total
-  - `basePrice/baseTotal/gstRate`: tax records if needed
-- Computes subtotal as `total - cgstAmount - sgstAmount` when rendering.
-- Downloaded as `.html` by `downloadBillHtml`.
+- Uses order snapshot line fields.
+- Downloaded as `.html`.
 
 ### Auto-print behavior
 - Customer success page auto-prints after 1.5s.
@@ -680,128 +722,69 @@ Defined in `client/src/App.tsx`:
 
 ## 16. Payment Flow Details
 
-### Online checkout route input
-`POST /api/orders/create`
-
-Header:
-```http
-Idempotency-Key: <uuid>
-```
-
-Body:
-```json
-{
-  "storeId": "uuid",
-  "customerPhone": "10-digit Indian mobile",
-  "customerName": "optional",
-  "customerMessage": "optional",
-  "items": [{ "id": "item uuid", "quantity": 1 }]
-}
-```
-
-Response data includes:
-```json
-{
-  "orderId": "uuid",
-  "orderNo": "R-YYMMDD-1234-0001",
-  "accessToken": "uuid",
-  "paymentStatus": "PENDING",
-  "razorpayOrderId": "order_xxx",
-  "amount": 12000,
-  "keyId": "rzp_test_xxx",
-  "currency": "INR"
-}
-```
-
-### Idempotency behavior
-- Same idempotency key + same cart/store/phone returns existing order payload.
-- Same key with different cart/store/phone returns 409.
-- Existing failed order returns 409 asking to start new checkout.
-- Race on Prisma unique (`P2002`) is handled by fetching the raced order and returning it if valid.
-
-### Payment success paths
-- Primary: Razorpay webhook `payment.captured` or `order.paid` calls `markOrderPaid`.
-- Fallback: client calls `/orders/verify`, server verifies signature, calls `markOrderPaid`, records `PaymentEvent` with dedupe key `client-verification:<paymentId>`.
-
-### Webhook behavior
-- Raw body required for signature verification.
-- Missing/invalid configuration or signature returns 400.
-- After event parsing/recording, duplicate payment events are deduped via `PaymentEvent.dedupeKey`.
-- On known payment success events, calls `markOrderPaid`.
-- On failure events, calls `failOrder`.
-- Processing errors are logged and route returns 200 to avoid repeated Razorpay retries.
+Same as before, plus feedback only allowed for PAID orders (checked in `/api/feedback` POST).
 
 ---
 
 ## 17. Security and Reliability Notes
 
-- **Server-side pricing:** never trust client totals.
-- **Serializable stock transaction:** protects concurrent stock decrement.
-- **Conditional stock update:** ensures stock has not changed under transaction.
-- **Razorpay call outside DB transaction:** avoids holding locks on network call.
-- **Idempotency-Key:** required for online order creation.
-- **CustomerAccessToken:** protects status/receipt from order UUID-only access.
-- **PaymentEvent dedupe:** protects duplicate webhooks/client verification events.
-- **JWT auth:** admin token expires in 7 days.
-- **Role/store authorization:** enforce store access for admin routes.
-- **Checkout abuse guard:** basic in-memory IP/phone/device limiter.
-- **Maintenance timer:** pending payment reconciliation and order expiry are scheduled in-process every 5 minutes.
+- Server-side pricing, serializable stock transaction, conditional stock update, Razorpay call outside transaction, idempotency-key, customerAccessToken, PaymentEvent dedupe, JWT 7-day expiry, role/store auth, checkout abuse guard, maintenance timer.
+- **Feedback security:** requires `orderId + customerAccessToken` to prove ownership, PAID only, one per order (unique constraint + 409).
+- **No FK to Order:** feedbacks independent of orders, easy cleanup, order deletion doesn't fail. Order total/phone/name denormalized into feedback at creation.
+- **Admin login URL rename:** frontend now uses `/adminlog/*`, backend API still `/api/admin/*`. Legacy frontend `/admin/*` redirects to `/adminlog` to avoid 404.
 
 ---
 
 ## 18. Known Gaps / Watchouts
 
-- In-memory abuse guard is not shared across multiple server instances. Use Redis/rate-limit service in production.
-- Admin stock/menu offline behavior is optimistic but not fully queued for later sync except order status pending updates.
-- `AdminReports` payment summary is not cached; bestsellers are cached.
-- `AdminMenu` edit cannot change category because update schema and UI disable category changes.
-- Public menu creates virtual `Most loved` on server and client also rebuilds it; client strips any server Most loved first to avoid duplication.
-- `server/.env.example` and `config.ts` still use some `quickbite`/`QUICKB` defaults; branding is otherwise Roll's & Co.
-- README may mention old store names and old route `/api/orders/receipt/:orderNo`; current customer receipt/status route is `/api/orders/status/:orderId?token=...`.
-- Admin bestsellers and payment-summary endpoints require Super Admin in backend; managers cannot access reports.
-- Orders cache is intentionally not persisted in admin cache store due to PII; if code expects persisted order list after reload, it will not exist.
-- `OrderSuccess.tsx` imports print helpers from `components/CustomerBill`; other code may import download helper from the same component while thermal-specific helpers live in `lib/thermalPrint.ts`.
+- In-memory abuse guard is not shared across instances – use Redis in prod.
+- Admin stock/menu offline optimistic but not queued except order status pending updates.
+- `AdminReports` payment summary not cached; bestsellers cached.
+- `AdminMenu` edit cannot change category.
+- Public menu creates virtual Most loved on server and client rebuilds it.
+- `server/.env.example` and `config.ts` still use some `quickbite` defaults; branding otherwise Roll's & Co.
+- Orders cache not persisted for PII.
+- `OrderSuccess.tsx` print helpers from `CustomerBill` vs thermal helpers in `lib/thermalPrint.ts`.
+- **Fixed 2026-08-11:** StoreStatusControls now syncs review URLs on store switch (was bug). AdminFeedbacks now clears and refetches on storeId change (was bug where old store's feedbacks remained).
 
 ---
 
 ## 19. Testing Checklist for Agents
 
-When changing code, verify relevant items:
-
 ### Checkout/order/payment
-- [ ] Cart changes reset `checkoutIdempotencyKey`.
-- [ ] Re-click/retry checkout with same unchanged cart reuses idempotency key and returns same pending order.
+- [ ] Cart changes reset checkoutIdempotencyKey.
+- [ ] Re-click retry checkout reuses idempotency key.
 - [ ] Client sends no price/total to `/orders/create`.
-- [ ] Server rejects closed or paused stores.
+- [ ] Server rejects closed/paused stores.
 - [ ] Server rejects out-of-stock/unavailable/wrong-store items.
-- [ ] Stock decrements on pending order creation.
-- [ ] Stock restores on `failOrder`/expiry/payment failure.
-- [ ] Razorpay webhook and `/orders/verify` are idempotent.
-- [ ] `/orders/status/:orderId` fails without the correct `token`.
+- [ ] Stock decrements on pending order creation, restores on fail/expiry.
+- [ ] Webhook and `/orders/verify` idempotent.
+- [ ] `/orders/status/:orderId` fails without correct token and now includes feedback field (fetched separately).
 
-### GST/billing
-- [ ] Frontend `useCartStore.getTotals()` matches server `calculateGstFromInclusive()`.
-- [ ] OrderItem snapshot fields are populated for online and instore orders.
-- [ ] Customer bill uses inclusive `unitPrice/totalPrice` lines and GST totals.
-- [ ] Chef bill has no prices.
+### Feedback / Google Rating (NEW)
+- [ ] After paid order, order appears in "Your Orders (Last 24 Hours)" on home.
+- [ ] Tap order card opens OrderFeedbackModal with Rate on Google + Feedback.
+- [ ] Rate on Google opens `googleReviewUrl` if set, else `googleMapsUrl`, else Google search for store name.
+- [ ] Feedback: select 1-5 stars, optional comment, submit -> success, then modal shows "Feedback Given" and blocks resubmit.
+- [ ] Duplicate feedback POST returns 409, UI shows already submitted.
+- [ ] `GET /api/feedback/order/:orderId?token=` returns existing feedback or null.
+- [ ] Admin Feedbacks tab per store shows average, distribution, list, filters.
+- [ ] Switching store in admin dashboard updates review URL inputs and feedback list (fix verified).
+- [ ] Feedback table has no FK to Order, order deletion doesn't fail, feedback retains orderNo.
 
-### Admin
-- [ ] Manager sees only New Order, Orders, Stock.
-- [ ] Super Admin sees Menu, Reports, Staff too.
-- [ ] Manager cannot call admin routes for unassigned stores.
-- [ ] Store status controls update `isOpen` and `acceptingOrders` and customer app rejects paused/closed store.
-- [ ] Order status changes are marked unsynced until Sync/Fetch succeeds.
-- [ ] Auto-sync interval persists and works.
-- [ ] In-store order creates `PAID + INSTORE`, decrements stock, invalidates caches, and can print.
-- [ ] Admin Reports payment summary separates `ONLINE` and `INSTORE`.
-- [ ] Staff creation assigns stores correctly; deleting self is blocked by backend.
+### Admin URL Rename (NEW)
+- [ ] `/adminlog/login` loads AdminLogin, `/adminlog/*` loads dashboard with ProtectedRoute.
+- [ ] Old `/admin/login` redirects to `/adminlog/login`, `/admin/*` redirects to `/adminlog`.
+- [ ] Header detects `/adminlog` as admin route.
+- [ ] ProtectedRoute redirects to `/adminlog/login` on no token.
+- [ ] `api.ts` 401 for `/admin` backend paths redirects to `/adminlog/login`.
+- [ ] AdminLogin default `from` is `/adminlog`, logout navigates to `/adminlog/login`.
 
-### UI/cache/offline
-- [ ] Store change clears cart.
-- [ ] Customer recent orders expire after 24h.
-- [ ] Admin menu/stock uses cache when offline.
-- [ ] Orders are not persisted in admin cache after reload.
-- [ ] Force refresh bypasses cache where available.
+### GST/billing, Admin, UI/cache/offline
+- Same as before plus:
+- [ ] StoreStatusControls edit review URLs saves via PATCH `/admin/stores/:id/review-url` and updates UI.
+- [ ] Admin orders API now merges feedback map, doesn't rely on Order->Feedback relation.
+- [ ] Feedbacks visible to Manager and Super Admin with store access enforcement.
 
 ---
 
@@ -813,6 +796,9 @@ When changing code, verify relevant items:
 - Primary color: `#E63946` (`brand-500`)
 - Accent color: `#FFC300` (`accent-500`)
 - Default admin credentials from seed: `admin@rollsandco.com` / `admin123`
-- Seed stores: Boring Road and Kankarbagh, Patna
-- Prep estimate shown to customers: 5–10 minutes
-- SMS sender intended: `ROLLCO`
+- Seed stores: Boring Road and Kankarbagh, Patna, now with `googleReviewUrl` placeholders
+- Prep estimate: 5–10 minutes
+- SMS sender: `ROLLCO`
+- Admin login URL: **`/adminlog/login`** (changed from `/admin/login` on 2026-08-11)
+- Admin dashboard URL: **`/adminlog/*`**
+- Feedback UX: 1-5 stars, comment max 1000 chars, one per order, stored without FK to Order

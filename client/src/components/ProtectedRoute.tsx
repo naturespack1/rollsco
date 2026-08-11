@@ -6,7 +6,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const location = useLocation();
 
   if (!token) {
-    return <Navigate to="/admin/login" state={{ from: location }} replace />;
+    return <Navigate to="/adminlog/login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

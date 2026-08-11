@@ -12,7 +12,7 @@ export default function Header() {
   const clearStore = useStoreStore((s) => s.clearStore);
   const clearCart = useCartStore((s) => s.clearCart);
 
-  const isAdmin = location.pathname.startsWith('/admin');
+  const isAdmin = location.pathname.startsWith('/adminlog') || location.pathname.startsWith('/admin');
   const isCheckout = location.pathname === '/checkout';
 
   return (

@@ -36,9 +36,9 @@ function App() {
             }
           />
           <Route path="/success/:orderId" element={<OrderSuccess />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/adminlog/login" element={<AdminLogin />} />
           <Route
-            path="/admin/*"
+            path="/adminlog/*"
             element={
               <ProtectedRoute>
                 <Suspense
@@ -53,6 +53,9 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* Legacy redirects: old /admin/* moved to /adminlog/* */}
+          <Route path="/admin/login" element={<Navigate to="/adminlog/login" replace />} />
+          <Route path="/admin/*" element={<Navigate to="/adminlog" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

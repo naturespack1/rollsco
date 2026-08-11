@@ -82,7 +82,7 @@ export default function AdminDashboard() {
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    navigate('/adminlog/login');
   };
 
   const handleClearCache = () => {
