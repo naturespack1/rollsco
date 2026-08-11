@@ -4,6 +4,15 @@ export interface Store {
   address: string;
   isOpen: boolean;
   acceptingOrders: boolean;
+  googleReviewUrl?: string;
+  googleMapsUrl?: string;
+}
+
+export interface Feedback {
+  id: string;
+  rating: number;
+  comment?: string;
+  createdAt: string;
 }
 
 export interface MenuItem {
@@ -57,7 +66,8 @@ export interface Order {
   customerMessage?: string;
   createdAt: string;
   items: OrderItem[];
-  store: { name: string; address: string };
+  store: { name: string; address: string; googleReviewUrl?: string; googleMapsUrl?: string };
+  feedback?: Feedback | null;
   cgstAmount?: number;
   sgstAmount?: number;
   subtotal?: number;

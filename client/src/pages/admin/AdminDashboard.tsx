@@ -17,6 +17,7 @@ import {
   X,
   RefreshCw,
   CirclePlus,
+  MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AdminOrders from './AdminOrders';
@@ -24,16 +25,18 @@ import AdminStock from './AdminStock';
 import AdminReports from './AdminReports';
 import AdminMenu from './AdminMenu';
 import AdminCreateOrder from './AdminCreateOrder';
+import AdminFeedbacks from './AdminFeedbacks';
 import StoreStatusControls from '@/components/StoreStatusControls';
 
 const AdminStaff = lazy(() => import('./AdminStaff'));
 
-type Tab = 'instoreOrder' | 'orders' | 'stock' | 'menu' | 'reports' | 'staff';
+type Tab = 'instoreOrder' | 'orders' | 'stock' | 'feedbacks' | 'menu' | 'reports' | 'staff';
 
 const managerTabs: { id: Tab; label: string; icon: any }[] = [
   { id: 'instoreOrder', label: 'New Order', icon: CirclePlus },
   { id: 'orders', label: 'Orders', icon: ShoppingBag },
   { id: 'stock', label: 'Stock', icon: Package },
+  { id: 'feedbacks', label: 'Feedbacks', icon: MessageSquare },
 ];
 
 const superAdminTabs: { id: Tab; label: string; icon: any }[] = [
@@ -247,6 +250,7 @@ export default function AdminDashboard() {
               {activeTab === 'instoreOrder' && <AdminCreateOrder storeId={selectedStoreId} onViewOrders={() => setActiveTab('orders')} />}
               {activeTab === 'orders' && <AdminOrders storeId={selectedStoreId} />}
               {activeTab === 'stock' && <AdminStock storeId={selectedStoreId} />}
+              {activeTab === 'feedbacks' && <AdminFeedbacks storeId={selectedStoreId} />}
               {isSuperAdmin && activeTab === 'menu' && <AdminMenu storeId={selectedStoreId} />}
               {isSuperAdmin && activeTab === 'reports' && <AdminReports storeId={selectedStoreId} />}
               {isSuperAdmin && activeTab === 'staff' && (

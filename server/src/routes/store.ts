@@ -8,6 +8,8 @@ export default async function storeRoutes(app: FastifyInstance) {
         id: true,
         name: true,
         address: true,
+        googleReviewUrl: true,
+        googleMapsUrl: true,
         isOpen: true,
         acceptingOrders: true,
       },

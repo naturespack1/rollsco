@@ -145,8 +145,9 @@ export default async function orderRoutes(app: FastifyInstance) {
     const order = await prisma.order.findFirst({
       where: { id: params.orderId, customerAccessToken: query.token },
       include: {
-        store: { select: { name: true, address: true } },
+        store: { select: { name: true, address: true, googleReviewUrl: true, googleMapsUrl: true } },
         items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } },
+        feedback: { select: { id: true, rating: true, comment: true, createdAt: true } },
       },
     });
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' });

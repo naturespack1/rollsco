@@ -119,6 +119,8 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
         id: true,
         name: true,
         address: true,
+        googleReviewUrl: true,
+        googleMapsUrl: true,
         isOpen: true,
         acceptingOrders: true,
       },
@@ -170,7 +172,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
       const [orders, total] = await Promise.all([
         prisma.order.findMany({
           where,
-          include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
+          include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true, comment: true } } },
           orderBy: { createdAt: 'desc' },
           skip: (page - 1) * limit,
           take: limit,
@@ -202,7 +204,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
 
     const orders = await prisma.order.findMany({
       where,
-      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
+      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -225,7 +227,7 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
 
     const orders = await prisma.order.findMany({
       where,
-      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } } },
+      include: { items: { select: { itemName: true, quantity: true, unitPrice: true, totalPrice: true, basePrice: true, baseTotal: true, gstRate: true } }, feedback: { select: { rating: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -473,5 +475,136 @@ export default async function adminDashboardRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('Content-Disposition', `attachment; filename="sales-${storeId}-${date.toISOString().slice(0, 10)}.xlsx"`);
     return reply.send(buffer);
+  });
+
+  // ─── Feedbacks ───
+
+  app.get('/feedbacks', { preHandler: [authenticate] }, async (request, reply) => {
+    const query = request.query as any;
+    const storeId = query.storeId as string;
+    const page = Math.max(1, parseInt(query.page || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit || '20', 10)));
+    const ratingFilter = query.rating ? parseInt(query.rating as string, 10) : undefined;
+    const from = query.from ? new Date(query.from as string) : undefined;
+    const to = query.to ? new Date(query.to as string) : undefined;
+
+    if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
+
+    const where: any = { storeId };
+    if (ratingFilter && ratingFilter >= 1 && ratingFilter <= 5) where.rating = ratingFilter;
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = from;
+      if (to) where.createdAt.lte = to;
+    }
+
+    const [feedbacks, total, avgResult] = await Promise.all([
+      prisma.feedback.findMany({
+        where,
+        include: {
+          order: { select: { orderNo: true, customerPhone: true, customerName: true, total: true, paymentMethod: true, createdAt: true } },
+          store: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.feedback.count({ where }),
+      prisma.feedback.aggregate({
+        where,
+        _avg: { rating: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // Rating distribution
+    const distributionRaw = await prisma.feedback.groupBy({
+      by: ['rating'],
+      where,
+      _count: { _all: true },
+    });
+
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (const d of distributionRaw) distribution[d.rating] = d._count._all;
+
+    return {
+      success: true,
+      data: {
+        feedbacks,
+        total,
+        page,
+        limit,
+        average: avgResult._avg.rating || 0,
+        distribution,
+      },
+    };
+  });
+
+  app.get('/feedbacks/stats', { preHandler: [authenticate] }, async (request, reply) => {
+    const query = request.query as any;
+    const storeId = query.storeId as string;
+    const days = parseInt(query.days || '30', 10);
+
+    if (!storeId) return reply.status(400).send({ success: false, error: 'storeId required' });
+    if (!(await enforceStoreAccess(request as any, reply, storeId))) return;
+
+    const since = days > 0 ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+
+    const where: any = { storeId, ...(since ? { createdAt: { gte: since } } : {}) };
+
+    const [avgResult, total, distRaw, recent] = await Promise.all([
+      prisma.feedback.aggregate({ where, _avg: { rating: true } }),
+      prisma.feedback.count({ where }),
+      prisma.feedback.groupBy({ by: ['rating'], where, _count: { _all: true } }),
+      prisma.feedback.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: { order: { select: { orderNo: true } } },
+      }),
+    ]);
+
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (const d of distRaw) distribution[d.rating] = d._count._all;
+
+    return {
+      success: true,
+      data: {
+        average: avgResult._avg.rating || 0,
+        total,
+        distribution,
+        recent,
+      },
+    };
+  });
+
+  // Update store google review URL (Super Admin only)
+  app.patch('/stores/:storeId/review-url', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
+    const { storeId } = request.params as { storeId: string };
+    const bodySchema = z.object({
+      googleReviewUrl: z.string().url().max(500).nullable().optional(),
+      googleMapsUrl: z.string().url().max(500).nullable().optional(),
+    });
+    const body = bodySchema.parse(request.body);
+
+    if (!(await enforceStoreAccess(request, reply, storeId))) return;
+
+    const updated = await prisma.store.update({
+      where: { id: storeId },
+      data: {
+        ...(body.googleReviewUrl !== undefined ? { googleReviewUrl: body.googleReviewUrl } : {}),
+        ...(body.googleMapsUrl !== undefined ? { googleMapsUrl: body.googleMapsUrl } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        googleReviewUrl: true,
+        googleMapsUrl: true,
+      },
+    });
+
+    return { success: true, data: updated };
   });
 }

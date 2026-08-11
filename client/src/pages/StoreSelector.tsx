@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Store, Clock, ChevronRight, Star, CheckCircle, Printer, X, Receipt, Package, History } from 'lucide-react';
+import { MapPin, Store, Clock, ChevronRight, Star, CheckCircle, Printer, X, Receipt, Package, History, MessageSquare, ExternalLink } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStoreStore } from '@/store/useStoreStore';
 import { useCartStore } from '@/store/useCartStore';
 import { useCustomerOrdersStore } from '@/store/useCustomerOrdersStore';
-import type { Store as StoreType } from '@/types';
+import type { Store as StoreType, Order } from '@/types';
 import { cn, formatPrice } from '@/lib/utils';
 import { downloadBillHtml } from '@/components/CustomerBill';
+import OrderFeedbackModal from '@/components/OrderFeedbackModal';
 
 const taglines = [
   { image: '/images/rolls.jpg', text: 'Rolls that roll your taste buds', sub: 'Fresh parathas, spicy fillings' },
@@ -27,6 +28,11 @@ export default function StoreSelector() {
   const markLastOrderShown = useCustomerOrdersStore((s) => s.markLastOrderShown);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showStorePopup, setShowStorePopup] = useState(false);
+
+  // Feedback / rating
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackStatusMap, setFeedbackStatusMap] = useState<Record<string, { rating: number; comment?: string } | null>>({});
 
   useEffect(() => {
     api.get('/stores').then((res) => {
@@ -72,9 +78,46 @@ export default function StoreSelector() {
     downloadBillHtml(order, order.store.name, order.store.address || '');
   };
 
-  const recentOrders = useCustomerOrdersStore((s) => s.getRecentOrders(24 * 60));
+  const recentOrders = useCustomerOrdersStore((s) => s.getRecentOrders(24 * 60)) as Order[];
+
+  // Fetch feedback status for recent orders
+  useEffect(() => {
+    if (recentOrders.length === 0) return;
+    recentOrders.forEach(async (order) => {
+      if (!order.id || !order.customerAccessToken) return;
+      if (feedbackStatusMap[order.id] !== undefined) return;
+      try {
+        const res = await api.get(`/feedback/order/${order.id}`, { params: { token: order.customerAccessToken } });
+        setFeedbackStatusMap(prev => ({ ...prev, [order.id]: res.data.data || null }));
+      } catch {
+        setFeedbackStatusMap(prev => ({ ...prev, [order.id]: null }));
+      }
+    });
+  }, [recentOrders.map(o => o.id).join(',')]);
 
   const openStores = stores.filter((s) => s.isOpen && s.acceptingOrders);
+
+  const handleOrderClick = (order: Order) => {
+    setSelectedOrder(order);
+    setShowFeedbackModal(true);
+  };
+
+  const handleGoogleRateForOrder = (order: Order, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const storeMeta = stores.find(s => s.name === order.store?.name);
+    const url = (order.store as any)?.googleReviewUrl || storeMeta?.googleReviewUrl || (storeMeta?.googleMapsUrl) || `https://www.google.com/maps/search/${encodeURIComponent(order.store?.name || "Roll's & Co.")}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleFeedbackClick = (order: Order, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedOrder(order);
+    setShowFeedbackModal(true);
+  };
+
+  const handleFeedbackSubmitted = (orderId: string, feedback: any) => {
+    setFeedbackStatusMap(prev => ({ ...prev, [orderId]: feedback }));
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
@@ -244,19 +287,31 @@ export default function StoreSelector() {
           <div className="flex items-center gap-2 mb-4">
             <History className="w-5 h-5 text-brand-600" />
             <h2 className="text-lg font-bold text-gray-900">Your Orders (Last 24 Hours)</h2>
+            <span className="ml-2 text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold">{recentOrders.length}</span>
           </div>
+          <p className="text-xs text-gray-500 mb-3">Tap any order to rate on Google Maps and share feedback</p>
           <div className="grid gap-3">
             {recentOrders.map((order) => {
               const isFresh = (Date.now() - new Date(order.createdAt).getTime()) < 15 * 60 * 1000;
+              const fb = feedbackStatusMap[order.id];
+              const hasFeedback = !!fb;
               return (
-              <div key={order.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm overflow-hidden">
+              <div 
+                key={order.id} 
+                onClick={() => handleOrderClick(order)}
+                className="group bg-white border border-gray-200 rounded-xl p-4 shadow-sm overflow-hidden cursor-pointer hover:border-brand-300 hover:shadow-md transition active:scale-[0.99]"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Package className="w-4 h-4 text-brand-600" />
                     <span className="font-bold text-gray-900">{order.orderNo}</span>
                     <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full', order.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' : order.paymentStatus === 'FAILED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')}>{order.paymentStatus}</span>
+                    {hasFeedback && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><Star className="w-3 h-3 fill-amber-600" /> {fb!.rating}/5</span>}
                   </div>
-                  <span className="text-xs text-gray-400">{new Date(order.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">{new Date(order.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition" />
+                  </div>
                 </div>
 
                 <div className="text-xs text-gray-500 mb-3">{order.store?.name || "Roll's & Co." }</div>
@@ -280,12 +335,32 @@ export default function StoreSelector() {
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between pt-3 border-t border-gray-100 gap-2">
                   <div className="text-sm font-bold text-gray-900">Total: {formatPrice(order.total)}</div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleDownloadOrderBill(order)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-medium hover:bg-brand-100 transition"><Printer className="w-3.5 h-3.5" /> Bill</button>
-                    <button onClick={() => handleViewReceipt(order.id, order.customerAccessToken)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition"><Receipt className="w-3.5 h-3.5" /> Receipt</button>
+                  <div className="flex gap-1.5">
+                    <button onClick={(e) => { e.stopPropagation(); handleDownloadOrderBill(order); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-[11px] font-medium hover:bg-brand-100 transition"><Printer className="w-3 h-3" /> Bill</button>
+                    <button onClick={(e) => { e.stopPropagation(); handleViewReceipt(order.id, order.customerAccessToken); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-[11px] font-medium hover:bg-gray-200 transition"><Receipt className="w-3 h-3" /> Receipt</button>
                   </div>
+                </div>
+
+                {/* New Action Buttons: Rate on Google + Feedback */}
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={(e) => handleGoogleRateForOrder(order, e)}
+                    className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
+                  >
+                    <Star className="w-3.5 h-3.5 fill-white" /> Rate on Google <ExternalLink className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => handleFeedbackClick(order, e)}
+                    disabled={hasFeedback}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition",
+                      hasFeedback ? "bg-green-50 text-green-700 border border-green-200 cursor-not-allowed" : "bg-amber-500 text-white hover:bg-amber-600"
+                    )}
+                  >
+                    {hasFeedback ? <><CheckCircle className="w-3.5 h-3.5" /> Feedback Given</> : <><MessageSquare className="w-3.5 h-3.5" /> Give Feedback</>}
+                  </button>
                 </div>
               </div>
             )})}
@@ -361,6 +436,14 @@ export default function StoreSelector() {
           </div>
         </div>
       )}
+
+      <OrderFeedbackModal
+        order={selectedOrder}
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        stores={stores}
+        onFeedbackSubmitted={handleFeedbackSubmitted}
+      />
     </div>
   );
 }

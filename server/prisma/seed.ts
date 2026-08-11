@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Clean up in correct order
+  await prisma.feedback.deleteMany();
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
   await prisma.item.deleteMany();
@@ -18,6 +19,8 @@ async function main() {
     data: {
       name: "Roll's & Co. Boring Road",
       address: 'Boring Road, Patna',
+      googleReviewUrl: 'https://search.google.com/local/writereview?placeid=ChIJ_example_boring_road',
+      googleMapsUrl: 'https://maps.google.com/?q=Rolls+%26+Co+Boring+Road+Patna',
       isOpen: true,
       acceptingOrders: true
     }
@@ -27,6 +30,8 @@ async function main() {
     data: {
       name: "Roll's & Co. Kankarbagh",
       address: 'Kankarbagh, Patna',
+      googleReviewUrl: 'https://search.google.com/local/writereview?placeid=ChIJ_example_kankarbagh',
+      googleMapsUrl: 'https://maps.google.com/?q=Rolls+%26+Co+Kankarbagh+Patna',
       isOpen: true,
       acceptingOrders: true
     }

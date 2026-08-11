@@ -16,6 +16,7 @@ import orderRoutes from './routes/order';
 import webhookRoutes from './routes/webhook';
 import adminAuthRoutes from './routes/adminAuth';
 import adminDashboardRoutes from './routes/adminDashboard';
+import feedbackRoutes from './routes/feedback';
 
 const app = Fastify({
   logger: { level: 'info' },
@@ -61,6 +62,7 @@ app.register(authPlugin);
 app.register(storeRoutes, { prefix: '/api/stores' });
 app.register(menuRoutes, { prefix: '/api/menu' });
 app.register(orderRoutes, { prefix: '/api/orders' });
+app.register(feedbackRoutes, { prefix: '/api/feedback' });
 app.register(webhookRoutes, { prefix: '/api/webhooks' });
 app.register(adminAuthRoutes, { prefix: '/api/admin/auth' });
 app.register(adminDashboardRoutes, { prefix: '/api/admin' });

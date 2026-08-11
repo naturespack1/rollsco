@@ -11,10 +11,13 @@ model Store {
   id              String       @id @default(uuid())
   name            String
   address         String
+  googleReviewUrl String?
+  googleMapsUrl   String?
   isOpen          Boolean      @default(true)
   acceptingOrders Boolean      @default(true)
   items           Item[]
   orders          Order[]
+  feedbacks       Feedback[]
   adminStores     AdminStore[]
   createdAt       DateTime     @default(now())
 }
@@ -68,6 +71,7 @@ model Order {
   sgstAmount        Decimal       @db.Decimal(10, 2)
   total             Decimal       @db.Decimal(10, 2)
   items             OrderItem[]
+  feedback          Feedback?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   store             Store         @relation(fields: [storeId], references: [id])
@@ -76,6 +80,24 @@ model Order {
   @@index([storeId, status, createdAt])
   @@index([storeId, paymentStatus, createdAt])
   @@index([paymentStatus, createdAt])
+}
+
+model Feedback {
+  id            String   @id @default(uuid())
+  orderId       String   @unique
+  storeId       String
+  rating        Int
+  comment       String?  @db.Text
+  customerPhone String?
+  customerName  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
+  @@index([rating])
+  @@index([createdAt])
 }
 
 model DailyOrderSequence {
